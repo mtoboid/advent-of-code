@@ -1,0 +1,13 @@
+#+LANGUAGE: en
+#+TITLE: Advent of Code
+#+STARTUP: outline
+
+* Source
+  Challenges from the [[https://adventofcode.com/][Advent of Code]].
+
+* Structure
+  Every year has a folder under =/src/adventofcode/year_<year>=, containing the
+  provided input data =data/input_day_<x>= and code to solve the challenge
+  =day_<x>.py=. The =__init.py__= provides a ~ChallengesList~ list to access all
+  of the challenges, which is used in =/src/main.py= to run the code for a
+  particular challenge.

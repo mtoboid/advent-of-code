@@ -8,6 +8,10 @@
 * Structure
   Every year has a folder under =/src/adventofcode/year_<year>=, containing the
   provided input data =data/input_day_<x>= and code to solve the challenge
-  =day_<x>.py=. The =__init.py__= provides a ~ChallengesList~ list to access all
-  of the challenges, which is used in =/src/main.py= to run the code for a
-  particular challenge.
+  =day_<x>.py=. The =__init.py__= of every year folder provides a
+  ~ChallengesList~ list to access all of the challenges, which is used in
+  =/src/main.py= to run the code for a particular challenge.
+
+* License
+  Copyright 2022 Tobias Marczewski. All code in this repository is released
+  under the [[https://spdx.org/licenses/GPL-3.0-or-later.html][Gnu General Public License v3.0 or later]].

@@ -4,6 +4,7 @@ from adventofcode.challenge import ChallengesList
 from adventofcode.input_data import InputData
 
 from .day_1 import Day1
+from .day_2 import Day2
 
 DATA_DIR_2022: Path
 INPUT_DATA_2022: InputData
@@ -14,3 +15,4 @@ INPUT_DATA_2022 = InputData(DATA_DIR_2022)
 CHALLENGES_2022 = ChallengesList(2022, INPUT_DATA_2022)
 
 CHALLENGES_2022.add(Day1())
+CHALLENGES_2022.add(Day2())

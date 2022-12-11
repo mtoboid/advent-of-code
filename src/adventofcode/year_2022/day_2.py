@@ -51,6 +51,31 @@ total score of 15 (8 + 1 + 6).
 
 What would your total score be if everything goes exactly according to your
 strategy guide?
+
+
+--- Part Two ---
+
+The Elf finishes helping with the tent and sneaks back over to you. "Anyway,
+the second column says how the round needs to end: X means you need to lose,
+Y means you need to end the round in a draw, and Z means you need to win.
+Good luck!"
+
+The total score is still calculated in the same way, but now you need to
+figure out what shape to choose so the round ends as indicated. The example
+above now goes like this:
+
+    In the first round, your opponent will choose Rock (A), and you need the
+    round to end in a draw (Y), so you also choose Rock. This gives you a
+    score of 1 + 3 = 4. In the second round, your opponent will choose Paper
+    (B), and you choose Rock so you lose (X) with a score of 1 + 0 = 1. In
+    the third round, you will defeat your opponent's Scissors with Rock for a
+    score of 1 + 6 = 7.
+
+Now that you're correctly decrypting the ultra top secret strategy guide,
+you would get a total score of 12.
+
+Following the Elf's instructions for the second column, what would your total
+score be if everything goes exactly according to your strategy guide?
 """
 
 from enum import Enum
@@ -67,20 +92,6 @@ class GameChoice(Enum):
     ROCK = 1
     PAPER = 2
     SCISSORS = 3
-
-    @staticmethod
-    def from_letter(letter: str) -> 'GameChoice':
-        conversion = {
-            'A': GameChoice.ROCK,
-            'B': GameChoice.PAPER,
-            'C': GameChoice.SCISSORS,
-            'X': GameChoice.ROCK,
-            'Y': GameChoice.PAPER,
-            'Z': GameChoice.SCISSORS
-        }
-        if letter not in conversion:
-            raise ValueError(f"Letter: {letter} can not be converted.")
-        return conversion[letter]
 
     def play(self, other: 'GameChoice') -> GameOutcome:
         rock = GameChoice.ROCK
@@ -136,13 +147,23 @@ class Day2(DayChallenge):
         with input_data.open() as f:
             data = f.read().split("\n")
 
+        # PART 1
+        print("Part 1:")
+
         total_score = sum([Day2._line_to_score(line)
                            for line in data
                            if len(line) > 0])
 
-        print("Part 1:")
-
         print(f"Total Score: {total_score}")
+
+        # PART 2
+        print("\nPart 2:")
+
+        total_score_v2 = sum([Day2._line_to_score_v2(line)
+                              for line in data
+                              if len(line) > 0])
+
+        print(f"Total Score (2): {total_score_v2}")
 
     @staticmethod
     def _score_for(my_choice: GameChoice, other_choice: GameChoice) -> int:
@@ -154,9 +175,65 @@ class Day2(DayChallenge):
         return score
 
     @staticmethod
+    def _game_choice_from_letter(letter: str) -> GameChoice:
+        conversion = {
+            'A': GameChoice.ROCK,
+            'B': GameChoice.PAPER,
+            'C': GameChoice.SCISSORS,
+            'X': GameChoice.ROCK,
+            'Y': GameChoice.PAPER,
+            'Z': GameChoice.SCISSORS
+        }
+        if letter not in conversion:
+            raise ValueError(f"Letter: {letter} can not be converted.")
+        return conversion[letter]
+
+    @staticmethod
+    def _game_outcome_from_letter(letter: str) -> GameOutcome:
+        conversion = {
+            'X': GameOutcome.LOSS,
+            'Y': GameOutcome.DRAW,
+            'Z': GameOutcome.WIN
+        }
+        if letter not in conversion:
+            raise ValueError(f"Letter: {letter} can not be converted.")
+        return conversion[letter]
+
+    @staticmethod
     def _line_to_score(line: str) -> int:
         """Convert an input line of the format 'A X' or 'B X'... to a score."""
 
         other, me = line.strip().split()
-        return Day2._score_for(GameChoice.from_letter(me),
-                               GameChoice.from_letter(other))
+        return Day2._score_for(Day2._game_choice_from_letter(me),
+                               Day2._game_choice_from_letter(other))
+
+    @staticmethod
+    def _complementary_game_choice(
+            other: GameChoice,
+            outcome: GameOutcome
+    ) -> GameChoice:
+
+        rock = GameChoice.ROCK
+        paper = GameChoice.PAPER
+        scissors = GameChoice.SCISSORS
+        win = GameOutcome.WIN
+        draw = GameOutcome.DRAW
+        loose = GameOutcome.LOSS
+
+        convert = {
+            rock:     {win: paper,    loose: scissors, draw: rock},
+            paper:    {win: scissors, loose: rock,     draw: paper},
+            scissors: {win: rock,     loose: paper,    draw: scissors}
+        }
+
+        return convert[other][outcome]
+
+    @staticmethod
+    def _line_to_score_v2(line: str) -> int:
+        """Convert an input line of the format 'A X' or 'B X'... to a score."""
+
+        letters = line.strip().split()
+        other = Day2._game_choice_from_letter(letters[0])
+        outcome = Day2._game_outcome_from_letter(letters[1])
+        me = Day2._complementary_game_choice(other, outcome)
+        return Day2._score_for(my_choice=me, other_choice=other)

@@ -21,3 +21,9 @@ class DayX(DayChallenge):
 
         with input_data.open() as file:
             data = file.read().split("\n")
+
+        # PART 1
+        print("Part 1:")
+
+        # PART 2
+        print("\nPart 2:")

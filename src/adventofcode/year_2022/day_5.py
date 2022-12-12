@@ -80,13 +80,18 @@ each stack?
 
 --- Part Two ---
 
-As you watch the crane operator expertly rearrange the crates, you notice the process isn't following your prediction.
+As you watch the crane operator expertly rearrange the crates, you notice the
+process isn't following your prediction.
 
-Some mud was covering the writing on the side of the crane, and you quickly wipe it away. The crane isn't a CrateMover 9000 - it's a CrateMover 9001.
+Some mud was covering the writing on the side of the crane, and you quickly
+wipe it away. The crane isn't a CrateMover 9000 - it's a CrateMover 9001.
 
-The CrateMover 9001 is notable for many new and exciting features: air conditioning, leather seats, an extra cup holder, and the ability to pick up and move multiple crates at once.
+The CrateMover 9001 is notable for many new and exciting features: air
+conditioning, leather seats, an extra cup holder, and the ability to pick up
+and move multiple crates at once.
 
-Again considering the example above, the crates begin in the same configuration:
+Again considering the example above, the crates begin in the same
+configuration:
 
     [D]
 [N] [C]
@@ -100,7 +105,9 @@ Moving a single crate from stack 2 to stack 1 behaves the same as before:
 [Z] [M] [P]
  1   2   3
 
-However, the action of moving three crates from stack 1 to stack 3 means that those three moved crates stay in the same order, resulting in this new configuration:
+However, the action of moving three crates from stack 1 to stack 3 means that
+those three moved crates stay in the same order, resulting in this new
+configuration:
 
         [D]
         [N]
@@ -108,7 +115,8 @@ However, the action of moving three crates from stack 1 to stack 3 means that th
     [M] [P]
  1   2   3
 
-Next, as both crates are moved from stack 2 to stack 1, they retain their order as well:
+Next, as both crates are moved from stack 2 to stack 1, they retain their
+order as well:
 
         [D]
         [N]
@@ -116,7 +124,8 @@ Next, as both crates are moved from stack 2 to stack 1, they retain their order 
 [M]     [P]
  1   2   3
 
-Finally, a single crate is still moved from stack 1 to stack 2, but now it's crate C that gets moved:
+Finally, a single crate is still moved from stack 1 to stack 2, but now it's
+crate C that gets moved:
 
         [D]
         [N]
@@ -124,10 +133,13 @@ Finally, a single crate is still moved from stack 1 to stack 2, but now it's cra
 [M] [C] [P]
  1   2   3
 
-In this example, the CrateMover 9001 has put the crates in a totally different order: MCD.
+In this example, the CrateMover 9001 has put the crates in a totally
+different order: MCD.
 
-Before the rearrangement process finishes, update your simulation so that the Elves know where they should stand to be ready to unload the final supplies. After the rearrangement procedure completes, what crate ends up on top of each stack?
-
+Before the rearrangement process finishes, update your simulation so that the
+Elves know where they should stand to be ready to unload the final supplies.
+After the rearrangement procedure completes, what crate ends up on top of
+each stack?
 """
 
 import re
@@ -148,7 +160,7 @@ class Day5(DayChallenge):
 
     def run(self, input_data: Path) -> None:
         data: list[str]
-        stacks: dict[int, list[str]]
+        stacks_1: dict[int, list[str]]
 
         with input_data.open() as file:
             data = file.read().split("\n")
@@ -163,19 +175,23 @@ class Day5(DayChallenge):
             sep += 1
         # stack setup
         initial_setup = data[:sep]
-        stacks = Day5.gen_initial_stacks(initial_setup)
-
         moves = data[sep+1:]
 
         # PART 1
         print("Part 1:")
+        stacks_1 = Day5.gen_initial_stacks(initial_setup)
         for m in moves:
             if not m == '':
-                Day5.move(stacks, m)
-        print(f"Top items are: {Day5.topmost_items(stacks)}")
+                Day5.move(stacks_1, m)
+        print(f"Top items are: {Day5.topmost_items(stacks_1)}")
 
         # PART 2
         print("\nPart 2:")
+        stacks_2 = Day5.gen_initial_stacks(initial_setup)
+        for m in moves:
+            if not m == '':
+                Day5.move_v2(stacks_2, m)
+        print(f"Top items are: {Day5.topmost_items(stacks_2)}")
 
     @staticmethod
     def gen_initial_stacks(structure: list[str]) -> dict[int, list[str]]:
@@ -227,6 +243,18 @@ class Day5(DayChallenge):
         for i in range(n):
             stacks[to_].append(stacks[from_].pop())
         return None
+
+    @staticmethod
+    def move_v2(stacks: dict[int, list[str]], action: str) -> None:
+        """Perform a combined move of crates specified in the move action."""
+        n: int
+        from_: int
+        to_: int
+        n, from_, to_ = Day5.gen_move_from_line(action)
+        stacks[to_].extend(stacks[from_][-n:])
+        del stacks[from_][-n:]
+
+
 
     @staticmethod
     def topmost_items(stacks: dict[int, list[str]]) -> str:

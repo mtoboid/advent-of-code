@@ -130,7 +130,7 @@ class GameChoice(Enum):
 
 
 class Day2(DayChallenge):
-    """Advent of Code year_2022 day 2"""
+    """Advent of Code 2022 day 2"""
 
     @property
     def year(self) -> int:

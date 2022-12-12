@@ -103,11 +103,12 @@ What is the sum of the priorities of those item types?
 
 from string import ascii_letters
 from collections.abc import Sequence
+
 from adventofcode.challenge import DayChallenge, Path
 
 
 class Day3(DayChallenge):
-    """Advent of Code year_2022 day 3"""
+    """Advent of Code 2022 day 3"""
 
     LETTER_PRIORITIES: dict[str, int] = {
         letter: value for value, letter in enumerate(ascii_letters, start=1)
@@ -137,7 +138,7 @@ class Day3(DayChallenge):
         print("\nPart 2:")
         # get rid of the empty line at the bottom
         data = [x for x in data if not x == '']
-        
+
         elf_groups: list[tuple[str, ...]]
         total_badge_score: int
         elf_groups = Day3.split_into_groups_of_three(data)

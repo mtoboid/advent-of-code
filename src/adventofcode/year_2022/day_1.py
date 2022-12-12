@@ -127,7 +127,7 @@ class Elf:
 
 
 class Day1(DayChallenge):
-    """Advent of Code year_2022 day 1"""
+    """Advent of Code 2022 day 1"""
 
     @property
     def year(self) -> int:

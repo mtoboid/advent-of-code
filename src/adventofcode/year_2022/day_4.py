@@ -61,9 +61,12 @@ In how many assignment pairs does one range fully contain the other?
 
 --- Part Two ---
 
-It seems like there is still quite a bit of duplicate work planned. Instead, the Elves would like to know the number of pairs that overlap at all.
+It seems like there is still quite a bit of duplicate work planned. Instead,
+the Elves would like to know the number of pairs that overlap at all.
 
-In the above example, the first two pairs (2-4,6-8 and 2-3,4-5) don't overlap, while the remaining four pairs (5-7,7-9, 2-8,3-7, 6-6,4-6, and 2-6,4-8) do overlap:
+In the above example, the first two pairs (2-4,6-8 and 2-3,4-5) don't
+overlap, while the remaining four pairs (5-7,7-9, 2-8,3-7, 6-6,4-6, and 2-6,
+4-8) do overlap:
 
     5-7,7-9 overlaps in a single section, 7.
     2-8,3-7 overlaps all of the sections 3 through 7.
@@ -73,7 +76,6 @@ In the above example, the first two pairs (2-4,6-8 and 2-3,4-5) don't overlap, w
 So, in this example, the number of overlapping assignment pairs is 4.
 
 In how many assignment pairs do the ranges overlap?
-
 """
 
 from adventofcode.challenge import DayChallenge, Path
@@ -96,11 +98,21 @@ class Day4(DayChallenge):
         with input_data.open() as file:
             data = file.read().split("\n")
 
+        # PART 1
         print("Part 1:")
-        total = sum([Day4.complete_overlap(line)
-                     for line in data
-                     if not line == ''])
-        print(f"In {total} assignment pairs do the ranges overlap completely.")
+        total_complete = sum([Day4.complete_overlap(line)
+                             for line in data
+                             if not line == ''])
+        print(f"In {total_complete} assignment pairs do the ranges overlap "
+              f"completely.")
+
+        # PART 2
+        print("\nPart 2:")
+        total_any = sum([Day4.any_overlap(line)
+                         for line in data
+                         if not line == ''])
+        print(f"In {total_any} assignment pairs do the ranges overlap "
+              f"to a certain extent.")
 
     @staticmethod
     def range_to_set(range_: str) -> set[int]:
@@ -122,3 +134,9 @@ class Day4(DayChallenge):
         a, b = line.strip().split(",")
         return Day4.one_set_contained_in_other(Day4.range_to_set(a),
                                                Day4.range_to_set(b))
+
+    @staticmethod
+    def any_overlap(line: str) -> bool:
+        """Do the sections represented by the line overlap at all?"""
+        a, b = line.strip().split(",")
+        return len(Day4.range_to_set(a) & Day4.range_to_set(b)) > 0

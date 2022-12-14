@@ -53,7 +53,70 @@ a total of 21 trees are visible in this arrangement.
 
 Consider your map; how many trees are visible from outside the grid?
 
+
+--- Part Two ---
+
+Content with the amount of tree cover available, the Elves just need to know
+the best spot to build their tree house: they would like to be able to see a
+lot of trees.
+
+To measure the viewing distance from a given tree, look up, down, left,
+and right from that tree; stop if you reach an edge or at the first tree that
+is the same height or taller than the tree under consideration. (If a tree is
+right on the edge, at least one of its viewing distances will be zero.)
+
+The Elves don't care about distant trees taller than those found by the rules
+above; the proposed tree house has large eaves to keep it dry, so they
+wouldn't be able to see higher than the tree house anyway.
+
+In the example above, consider the middle 5 in the second row:
+
+30373
+25512
+65332
+33549
+35390
+
+    Looking up, its view is not blocked; it can see 1 tree (of height 3).
+
+    Looking left, its view is blocked immediately; it can see only 1 tree (of
+    height 5, right next to it).
+
+    Looking right, its view is not blocked; it can see 2 trees.
+
+    Looking down, its view is blocked eventually; it can see 2 trees (one of
+    height 3, then the tree of height 5 that blocks its view).
+
+A tree's scenic score is found by multiplying together its viewing distance
+in each of the four directions. For this tree, this is 4 (found by
+multiplying 1 * 1 * 2 * 2).
+
+However, you can do even better: consider the tree of height 5 in the middle
+of the fourth row:
+
+30373
+25512
+65332
+33549
+35390
+
+    Looking up, its view is blocked at 2 trees (by another tree with a height
+    of 5).
+
+    Looking left, its view is not blocked; it can see 2 trees.
+
+    Looking down, its view is also not blocked; it can see 1 tree.
+
+    Looking right, its view is blocked at 2 trees (by a massive tree of
+    height 9).
+
+This tree's scenic score is 8 (2 * 2 * 1 * 2); this is the ideal spot for the
+tree house.
+
+Consider each tree on your map. What is the highest scenic score possible for
+any tree?
 """
+
 import numpy as np
 
 from collections.abc import Sequence
@@ -65,17 +128,19 @@ class TreeGrid:
     def __init__(self, tree_heights: list[list[int]]):
         self._tree_height: np.ndarray
         self._visible: np.ndarray
+        self._scenic_score: np.ndarray
 
-        self._tree_height = np.array(tree_heights, dtype=int)
-        self._visible = TreeGrid.gen_visibility_grid(self._tree_height)
+        self._tree_heights = np.array(tree_heights, dtype=int)
+        self._visible = TreeGrid.gen_visibility_grid(self._tree_heights)
+        self._scenic_scores = TreeGrid.gen_scenic_score_grid(self._tree_heights)
 
     def __str__(self):
-        return self._tree_height.__str__()
+        return self._tree_heights.__str__()
 
     @property
-    def tree_height(self) -> np.ndarray:
+    def tree_heights(self) -> np.ndarray:
         """Return the grid of tree heights in the forrest."""
-        out = self._tree_height.copy()
+        out = self._tree_heights.copy()
         return out
 
     @property
@@ -85,6 +150,16 @@ class TreeGrid:
         trees in the forrest.
         """
         out = self._visible
+        return out
+
+    @property
+    def scenic_score(self) -> np.ndarray:
+        """
+        The scenic scores of the trees in the forest.
+        :return:
+            integer grid of scenic scores
+        """
+        out = self._scenic_scores.copy()
         return out
 
     @staticmethod
@@ -114,6 +189,68 @@ class TreeGrid:
 
         vis_any = vis_n | vis_e | vis_s | vis_w
         return vis_any
+
+    @staticmethod
+    def gen_scenic_score_grid(trees: np.ndarray) -> np.ndarray:
+        """
+        Generate a grid of integers indicating the 'scenic score' of each
+        tree in the forest.
+        """
+        scenic_score_grid: np.ndarray = np.full(shape=trees.shape, dtype=int,
+                                                fill_value=0)
+        row_max: int = trees.shape[0] - 1
+        col_max: int = trees.shape[1] - 1
+
+        for row in range(0, row_max):
+            for col in range(0, col_max):
+                scenic_score_grid[row, col] = \
+                  TreeGrid.calc_scenic_score_for_tree(trees, row, col)
+        return scenic_score_grid
+
+    @staticmethod
+    def calc_scenic_score_for_tree(trees: np.ndarray, row: int, col: int) -> int:
+        """Calculate the scenic score for the tree at (row, col)."""
+        tree_height: int = trees[row, col]
+        score_n: int = 0
+        score_e: int = 0
+        score_s: int = 0
+        score_w: int = 0
+        score_total: int
+
+        # max for rows (y) and cols (x)
+        max_y: int = trees.shape[0] - 1
+        max_x: int = trees.shape[1] - 1
+
+        # row / col the tree is in
+        east_west = trees[row, :]
+        north_south = trees[:, col]
+
+        # visibility of trees
+        # east-west in the same row
+        # to west
+        for x in [i-1 for i in range(col, 0, -1)]:
+            score_w += 1
+            if east_west[x] >= tree_height:
+                break
+        # to east
+        for x in [i+1 for i in range(col, max_x)]:
+            score_e += 1
+            if east_west[x] >= tree_height:
+                break
+        # north-south in same col
+        # to north
+        for y in [i-1 for i in range(row, 0, -1)]:
+            score_n += 1
+            if north_south[y] >= tree_height:
+                break
+        # to south
+        for y in [i + 1 for i in range(row, max_y)]:
+            score_s += 1
+            if north_south[y] >= tree_height:
+                break
+
+        score_total = score_n * score_e * score_s * score_w
+        return score_total
 
     @staticmethod
     def _visibility(trees: Sequence[int]) -> np.ndarray:
@@ -159,6 +296,8 @@ class Day8(DayChallenge):
 
         # PART 2
         print("\nPart 2:")
+        print(f"Mean scenic score: {tg.scenic_score.mean()}")
+        print(f"Max scenic score: {tg.scenic_score.max()}")
 
     @staticmethod
     def tree_grid_from_input(data: list[str]) -> TreeGrid:

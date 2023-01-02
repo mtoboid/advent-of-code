@@ -253,13 +253,19 @@ stuff-slinging simian shenanigans?
 
 --- Part Two ---
 
-You're worried you might not ever get your items back. So worried, in fact, that your relief that a monkey's inspection didn't damage an item no longer causes your worry level to be divided by three.
+You're worried you might not ever get your items back. So worried, in fact,
+that your relief that a monkey's inspection didn't damage an item no longer
+causes your worry level to be divided by three.
 
-Unfortunately, that relief was all that was keeping your worry levels from reaching ridiculous levels. You'll need to find another way to keep your worry levels manageable.
+Unfortunately, that relief was all that was keeping your worry levels from
+reaching ridiculous levels. You'll need to find another way to keep your
+worry levels manageable.
 
-At this rate, you might be putting up with these monkeys for a very long time - possibly 10000 rounds!
+At this rate, you might be putting up with these monkeys for a very long time
+- possibly 10000 rounds!
 
-With these new rules, you can still figure out the monkey business after 10000 rounds. Using the same example above:
+With these new rules, you can still figure out the monkey business after
+10000 rounds. Using the same example above:
 
 == After round 1 ==
 Monkey 0 inspected items 2 times.
@@ -333,12 +339,19 @@ Monkey 1 inspected items 47830 times.
 Monkey 2 inspected items 1938 times.
 Monkey 3 inspected items 52013 times.
 
-After 10000 rounds, the two most active monkeys inspected items 52166 and 52013 times. Multiplying these together, the level of monkey business in this situation is now 2713310158.
+After 10000 rounds, the two most active monkeys inspected items 52166 and
+52013 times. Multiplying these together, the level of monkey business in this
+situation is now 2713310158.
 
-Worry levels are no longer divided by three after each item is inspected; you'll need to find another way to keep your worry levels manageable. Starting again from the initial state in your puzzle input, what is the level of monkey business after 10000 rounds?
+Worry levels are no longer divided by three after each item is inspected;
+you'll need to find another way to keep your worry levels manageable.
+Starting again from the initial state in your puzzle input, what is the level
+of monkey business after 10000 rounds?
 
 """
 from __future__ import annotations
+
+import inspect
 
 from math import floor
 from re import compile, Match, Pattern
@@ -361,7 +374,7 @@ class Monkey:
                  starting_items: Iterable[Item],
                  worry_level_fun: Callable[[int], int],
                  throw_to_other_fun: Callable[[int], int],
-                 monkey_pack: list['Monkey'] = None
+                 decrease_worry_fun: Callable[[int, int], int],
                  ):
         # Attributes
         self._number: int
@@ -369,7 +382,8 @@ class Monkey:
         self._items: list[Item]
         self._worry_level_fun: Callable[[int], int]
         self._throw_to_other_fun: Callable[[int], int]
-        self._monkey_pack: list['Monkey'] | None
+        self._decrease_worry_fun: Callable[[int, int], int]
+        self._monkey_pack: MonkeyPack | None
         # Initial
         self._number = number
         self._items_investigated_count = 0
@@ -377,7 +391,8 @@ class Monkey:
         self._items.extend(starting_items)
         self._worry_level_fun = worry_level_fun
         self._throw_to_other_fun = throw_to_other_fun
-        self._monkey_pack = monkey_pack
+        self._decrease_worry_fun = decrease_worry_fun
+        self._monkey_pack = MonkeyPack()
 
     def __str__(self):
         return f"Monkey {self._number} items: {len(self._items)}"
@@ -395,10 +410,9 @@ class Monkey:
         """How many items has this monkey already investigated?"""
         return self._items_investigated_count
 
-    def add_to_pack(self, monkey_pack: list['Monkey']) -> None:
+    def add_to_pack(self, monkey_pack: MonkeyPack) -> None:
         """Add the monkey to a pack"""
         self._monkey_pack = monkey_pack
-        monkey_pack.append(self)
 
     def catch_item(self, item: Item) -> None:
         """Catch an item and add it to the currently possessed items."""
@@ -413,7 +427,7 @@ class Monkey:
             current_item = self._items.pop()
             self._inspect_item(current_item)
             self._items_investigated_count += 1
-            Monkey._decrease_worry_level(current_item)
+            self._decrease_worry_level(current_item)
             self._throw_item(current_item)
 
     def _inspect_item(self, item: Item) -> None:
@@ -424,14 +438,61 @@ class Monkey:
         """Throw the item to another monkey in the pack."""
         if self._monkey_pack is None:
             raise RuntimeError("Monkey is not assigned to a pack.")
+        other: Monkey
         throw_to: int
         throw_to = self._throw_to_other_fun(item.worry_level)
-        self._monkey_pack[throw_to].catch_item(item)
+        other = self._monkey_pack.get_monkey(throw_to)
+        other.catch_item(item)
 
-    @staticmethod
-    def _decrease_worry_level(item: Item) -> None:
+    def _decrease_worry_level(self, item: Item) -> None:
         """Decrease the worry level after the item was investigated."""
-        item.worry_level = floor(item.worry_level / 3)
+        item.worry_level = self._decrease_worry_fun(
+            item.worry_level, self._monkey_pack.worry_mod_nr)
+
+
+class MonkeyPack:
+    """
+    A pack of monkeys that throw items between each other.
+
+    The pack also has a worry mod number, which keeps the overall item worry
+    numbers at a manageable magnitude.
+    """
+
+    def __init__(self):
+        self.monkeys: list[Monkey] = list()
+        self.worry_mod_nr: int = 0
+        self.throw_div_nrs: list[int] = list()
+
+    def __iter__(self):
+        return self.monkeys.__iter__()
+
+    def add_monkey(self, monkey: Monkey, throw_div_nr: int) -> None:
+        """Add a monkey to the pack"""
+        if throw_div_nr not in self.throw_div_nrs:
+            self.throw_div_nrs.append(throw_div_nr)
+            self._recalc_worry_mod_nr()
+
+        monkey.add_to_pack(self)
+        self.monkeys.append(monkey)
+        self.monkeys.sort(key=lambda x: x.number)
+
+    def get_monkey(self, id_: int) -> Monkey | None:
+        """Get the monkey with number id_."""
+        for m in self.monkeys:
+            if m.number == id_:
+                return m
+        return None
+
+    def _recalc_worry_mod_nr(self) -> None:
+        new_num: int
+        if len(self.throw_div_nrs) < 1:
+            new_num = 0
+        else:
+            new_num = 1
+            for n in self.throw_div_nrs:
+                if new_num % n != 0:
+                    new_num *= n
+        self.worry_mod_nr = new_num
 
 
 class Day11(DayChallenge):
@@ -453,26 +514,58 @@ class Day11(DayChallenge):
 
         # PART 1
         print("Part 1:")
-        monkey_pack: list[Monkey] = list()
+        monkey_pack: MonkeyPack = MonkeyPack()
+
         # parse input
         monkey_data: list[list[str]] = Day11.split_data_into_monkeys(data)
         for d in monkey_data:
-            m: Monkey = Day11.parse_monkey_from_input(d)
-            m.add_to_pack(monkey_pack)
+            m: Monkey
+            div_num: int
+            m, div_num = Day11.parse_monkey_from_input(
+                d, decrease_worry_fun=lambda x, y: floor(x / 3)
+            )
+            monkey_pack.add_monkey(m, div_num)
+
         # run 20 rounds of monkey mania
         for r in range(20):
             for m in monkey_pack:
                 m.investigate_items()
+
         # two most active monkeys
-        monkey_pack.sort(key=lambda x: x.n_items_investigated, reverse=True)
-        most = monkey_pack[0].n_items_investigated
-        second_most = monkey_pack[1].n_items_investigated
+        monkeys: list[Monkey] = [m for m in monkey_pack]
+        monkeys.sort(key=lambda x: x.n_items_investigated, reverse=True)
+        most = monkeys[0].n_items_investigated
+        second_most = monkeys[1].n_items_investigated
         monkey_business = most * second_most
-        print(monkey_pack)
+        print(monkeys)
         print(f"total monkey business: {monkey_business}")
 
         # PART 2
         print("\nPart 2:")
+        monkey_pack_2: MonkeyPack = MonkeyPack()
+
+        # parse input (monkey_data from Part 1)
+        for d in monkey_data:
+            m: Monkey
+            div_num: int
+            m, div_num = Day11.parse_monkey_from_input(
+                d, decrease_worry_fun=lambda x, y: x % y
+            )
+            monkey_pack_2.add_monkey(m, div_num)
+
+        # run 10,000 rounds of monkey mania
+        for r in range(10_000):
+            for m in monkey_pack_2:
+                m.investigate_items()
+
+        # two most active monkeys
+        monkeys_2: list[Monkey] = [m for m in monkey_pack_2]
+        monkeys_2.sort(key=lambda x: x.n_items_investigated, reverse=True)
+        most_2 = monkeys_2[0].n_items_investigated
+        second_most_2 = monkeys_2[1].n_items_investigated
+        monkey_business_2 = most_2 * second_most_2
+        print(monkeys_2)
+        print(f"total monkey business: {monkey_business_2}")
 
     @staticmethod
     def split_data_into_monkeys(data: list[str]) -> list[list[str]]:
@@ -487,13 +580,17 @@ class Day11(DayChallenge):
                 monkey_data.append(line)
         return out
 
-
-
-
-
     @staticmethod
-    def parse_monkey_from_input(lines: list[str]) -> Monkey:
-        """Create a monkey object from input lines."""
+    def parse_monkey_from_input(lines: list[str],
+                                decrease_worry_fun: Callable[[int], int]
+                                ) -> tuple[Monkey, int]:
+        """
+        Create a monkey object from input lines.
+
+        :returns:
+            A monkey object and the integer (divisible by) for the throw choice
+            function
+        """
 
         number: int
         items: list[Item]
@@ -522,19 +619,31 @@ class Day11(DayChallenge):
                         f"if {Day11._parse_test(m.group('throw_test'))} " \
                         f"else {m.group('false')}"
         throw_fun = eval(throw_fun_def)
+        # extract the mod number for part 2
+        div_number: int = int(Day11._parse_test(m.group('throw_test'),
+                                                return_num=True))
 
         return Monkey(number=number,
                       starting_items=items,
                       worry_level_fun=worry_fun,
-                      throw_to_other_fun=throw_fun)
+                      throw_to_other_fun=throw_fun,
+                      decrease_worry_fun=decrease_worry_fun),\
+               div_number
 
     @staticmethod
-    def _parse_test(test: str) -> str:
+    def _parse_test(test: str, return_num: bool = False) -> str:
         """
         Convert a test of the form 'divisible by <num>' to 'x % <num> == 0'
+        If return_num only return the 'divisible' by number.
         """
         div_pattern: Pattern = compile(r'divisible\s+by\s+(?P<num>\d+)')
         m = div_pattern.match(test)
+
         if m is None:
             raise ValueError("Not a proper test string.")
-        return f"x % {m.group('num').strip()} == 0"
+
+        div_number: int = int(m.group('num').strip())
+        if return_num:
+            return f"{div_number}"
+        else:
+            return f"x % {div_number} == 0"

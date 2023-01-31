@@ -195,7 +195,7 @@ from adventofcode.challenge import DayChallenge, Path
 
 
 class Day13(DayChallenge):
-    """Advent of Code 2022 day X"""
+    """Advent of Code 2022 day 13"""
 
     @property
     def year(self) -> int:
@@ -212,7 +212,6 @@ class Day13(DayChallenge):
             data = file.read().split("\n")
 
         signals_pairs: list[tuple[list, list]] = Day13.parse_input_pairs(data)
-
 
         # PART 1
         print("Part 1:")
@@ -254,11 +253,11 @@ class Day13(DayChallenge):
         """
         recursively compare two lists:
 
-        If both values are integers, the lower integer should come first. If the
-        left integer is lower than the right integer, the inputs are in the right
-        order. If the left integer is higher than the right integer, the inputs
-        are not in the right order. Otherwise, the inputs are the same integer;
-        continue checking the next part of the input.
+        If both values are integers, the lower integer should come first. If
+        the left integer is lower than the right integer, the inputs are in
+        the right order. If the left integer is higher than the right
+        integer, the inputs are not in the right order. Otherwise, the inputs
+        are the same integer; continue checking the next part of the input.
 
         If both values are lists, compare the first value of each list, then the
         second value, and so on. If the left list runs out of items first,
@@ -308,9 +307,3 @@ class Day13(DayChallenge):
                 return Day13.compare([a], b)
             else:
                 return Day13.compare(a, [b])
-
-
-
-
-
-

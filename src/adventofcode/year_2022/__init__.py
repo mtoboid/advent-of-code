@@ -15,6 +15,7 @@ from .day_9 import Day9
 from .day_10 import Day10
 from .day_11 import Day11
 from .day_12 import Day12
+from .day_13 import Day13
 
 DATA_DIR_2022: Path
 INPUT_DATA_2022: InputData
@@ -36,3 +37,4 @@ CHALLENGES_2022.add(Day9())
 CHALLENGES_2022.add(Day10())
 CHALLENGES_2022.add(Day11())
 CHALLENGES_2022.add(Day12())
+CHALLENGES_2022.add(Day13())

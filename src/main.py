@@ -6,7 +6,7 @@ from adventofcode.year_2022 import CHALLENGES_2022
 
 def main():
     with Profile() as profile:
-        CHALLENGES_2022.run(12)
+        CHALLENGES_2022.run(13)
 
     # summary = Stats(profile)
     # summary.sort_stats(SortKey.TIME)

@@ -94,7 +94,7 @@ from tkinter import font as tk_font
 from threading import Event, Thread
 
 from enum import IntEnum
-from typing import Any, NamedTuple, Sequence
+from typing import Any, Callable, NamedTuple, Sequence
 
 from numpy import dtype
 from sortedcontainers import SortedSet
@@ -162,10 +162,10 @@ class MapHeightValue(int):
     __slots__ = ()
     MAX_VALUE: int = len(ascii_lowercase) - 1
     REPRESENTATION: dict[int, str] = {
-        i: ascii_lowercase[i] for i in range(MAX_VALUE+1)
+        i: ascii_lowercase[i] for i in range(MAX_VALUE + 1)
     }
     CONVERSION: dict[str, int] = {
-        ascii_lowercase[i]: i for i in range(MAX_VALUE+1)
+        ascii_lowercase[i]: i for i in range(MAX_VALUE + 1)
     }
 
     def __new__(cls, value: str):
@@ -295,6 +295,7 @@ class AStarFinishedError(Exception):
     """
     Raised when step is called although the algorithm has already found a path.
     """
+
     def __init__(self):
         super().__init__("Algorithm has already found a shortest path.")
 
@@ -304,15 +305,17 @@ class AStar:
 
     class Node:
         """A node on a path from start to goal"""
+
         def __init__(self,
-                     height_map: HeightMap,
+                     parent: AStar,
                      x: int, y: int,
                      previous: AStar.Node | None = None):
-            self.height_map: HeightMap = height_map
-            self.field: MapField = height_map.get_field(Coordinates(x=x, y=y))
+            self._parent: AStar = parent
+            self._field: MapField = self.parent.height_map.get_field(
+                                                    Coordinates(x=x, y=y))
             self._previous: AStar.Node | None = None
-            self._dist_to_goal: int = self._calc_dist_to_goal()
             self._dist_to_start: int = 0
+            self._dist_to_goal: int = self._calc_dist_to_goal()
 
             self.previous = previous
 
@@ -330,6 +333,14 @@ class AStar:
                 return NotImplemented
             else:
                 return self.field.coordinates == other.field.coordinates
+
+        @property
+        def field(self) -> MapField:
+            return self._field
+
+        @property
+        def parent(self) -> AStar:
+            return self._parent
 
         @property
         def previous(self) -> AStar.Node | None:
@@ -358,32 +369,235 @@ class AStar:
             return self.dist_to_start + self.dist_to_goal
 
         def _calc_dist_to_goal(self) -> int:
+            return self.parent.settings.estimate_to_goal(self)
+
+    class Settings:
+        class Part(IntEnum):
+            ONE = 1
+            TWO = 2
+
+        def __init__(self, parent: AStar):
+            part = AStar.Settings.Part
+
+            self.parent: AStar = parent
+            self._goal_reached: Callable[[AStar.Node], bool]
+            self._node_neighbours: Callable[[AStar.Node], list[AStar.Node]]
+            self._estimate_to_goal: Callable[[AStar.Node], int]
+            self._part: part = part.ONE
+            # sets all the settings
+            self._adjust_settings()
+
+        @property
+        def part(self) -> 'AStar.Settings.Part':
+            return self._part
+
+        @part.setter
+        def part(self, value: 'AStar.Settings.Part') -> None:
+            self._part = value
+            self._adjust_settings()
+
+        @property
+        def goal_reached(self) -> Callable[[AStar.Node], bool]:
+            return self._goal_reached
+
+        @property
+        def node_neighbours(self) -> Callable[[AStar.Node], list[AStar.Node]]:
+            return self._node_neighbours
+
+        @property
+        def estimate_to_goal(self) -> Callable[[AStar.Node], int]:
+            return self._estimate_to_goal
+
+        def _adjust_settings(self) -> None:
+            """Change the overall settings according to part"""
+            part = AStar.Settings.Part
+            setting = AStar.Settings
+
+            if self._part == part.ONE:
+                self._goal_reached = setting.current_node_is_goal
+                self._node_neighbours = setting.one_step_up_any_number_down
+                self._estimate_to_goal = \
+                    setting.max_of_dist_to_goal_or_climb_to_goal
+
+            elif self._part == part.TWO:
+                self._goal_reached = setting.current_node_has_height_a
+                self._node_neighbours = setting.one_step_down_any_number_up
+                self._estimate_to_goal = setting.dist_only_based_on_height
+
+            else:
+                raise ValueError("Unknown Part setting.")
+
+        @staticmethod
+        def current_node_is_goal(node: AStar.Node) -> bool:
+            """[goal_reached] Goal condition for part 1."""
+            return node.field.coordinates == node.parent.goal.coordinates
+
+        @staticmethod
+        def current_node_has_height_a(node: AStar.Node) -> bool:
+            """[goal_reached] Goal condition for part 2"""
+            return node.field.height == MapHeightValue("a")
+
+        @staticmethod
+        def one_step_up_any_number_down(node: AStar.Node) -> list[AStar.Node]:
             """
-            Return the estimated distance to the goal, taking height into
-            account.
+            Get the neighbours of a node that are reachable.
+
+            Reachable are adjacent nodes on the grid horizontally and
+            vertically, when their height is not more than one larger than
+            the height of the node.
             """
-            distance = self.field.coordinates.distance(
-                self.height_map.goal.coordinates)
-            climb = self.height_map.goal.height - self.field.height
+            def neighbour_max_one_higher_than_current(
+                    current: int, neighbour: int) -> bool:
+                return current + 1 >= neighbour
+
+            return AStar.Settings._get_neighbours_on_height_condition(
+                condition=neighbour_max_one_higher_than_current, node=node)
+
+        @staticmethod
+        def one_step_down_any_number_up(node: AStar.Node) -> list[AStar.Node]:
+            """
+            Get the neighbours of a node that are reachable.
+
+            Reachable are adjacent nodes on the grid horizontally and
+            vertically, when their height is not more than one smaller than
+            the height of the node.
+            """
+
+            def neighbour_max_one_lower_than_current(
+                    current: int, neighbour: int) -> bool:
+                return current - 1 <= neighbour
+
+            return AStar.Settings._get_neighbours_on_height_condition(
+                condition=neighbour_max_one_lower_than_current, node=node)
+
+        @staticmethod
+        def _get_neighbours_on_height_condition(
+                node: AStar.Node,
+                condition: Callable[[int, int], bool]) \
+                -> list[AStar.Node]:
+            """
+            Get the neighbours of a node that are reachable.
+
+            Reachable are adjacent nodes on the grid horizontally and
+            vertically, conditionally on the height (current ? neighbour)
+            e.g. condition = lambda c, n: c + 1 >= n would return only
+            squares that are a maximum of 1 higher than the current square.
+            """
+
+            x: int = node.field.coordinates.x
+            y: int = node.field.coordinates.y
+            h: int = node.field.height
+            max_x: int = node.parent.height_map.columns - 1
+            max_y: int = node.parent.height_map.rows - 1
+            neighbours: list[AStar.Node] = list()
+
+            for i, j in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                xx = x + i
+                yy = y + j
+                if any([xx < 0, yy < 0, xx > max_x, yy > max_y]):
+                    continue
+                nb_node = AStar.Node(parent=node.parent,
+                                     x=xx,
+                                     y=yy)
+                if condition(h, nb_node.field.height):
+                    neighbours.append(nb_node)
+
+            return neighbours
+
+        @staticmethod
+        def max_of_dist_to_goal_or_climb_to_goal(node: AStar.Node) -> int:
+            """
+            Return the larger of either the Manhattan distance to the goal or
+            the still needed distance in height (climb).
+            """
+            goal = node.parent.goal
+            distance: int
+            climb: int
+
+            if goal is None:
+                rows = node.parent.height_map.rows
+                cols = node.parent.height_map.columns
+                distance = rows + cols
+                climb = MapHeightValue.MAX_VALUE - node.field.height
+            else:
+                distance = node.field.coordinates.distance(goal.coordinates)
+                climb = goal.height - node.field.height
+
             if distance > climb:
                 return distance
             else:
                 return climb
 
+        @staticmethod
+        def dist_only_based_on_height(node: AStar.Node) -> int:
+            return node.field.height - MapHeightValue("a")
+
+        @staticmethod
+        def sort_by_overall_dist_then_dist_to_goal(node: AStar.Node) -> \
+                tuple[int, int]:
+            return node.overall_dist, node.dist_to_goal
+
+        @staticmethod
+        def sort_by_height_then_dist_from_start(node: AStar.Node) -> \
+                tuple[int, int]:
+            return node.overall_dist, node.dist_to_goal
+
     # ----- A-Star ----- #
     def __init__(self, height_map: HeightMap):
-        self._finished:       bool = False
-        self._height_map:     HeightMap = height_map
+        self._finished: bool = False
+        self._height_map: HeightMap = height_map
+        self._settings: AStar.Settings = AStar.Settings(self)
+        self._goal: AStar.Node | None = None
+        self._start: AStar.Node = AStar.Node(self, 0, 0)
         self._nodes_in_paths: dict[MapField, AStar.Node] = dict()
         self._path_tip_nodes: SortedSet[AStar.Node] = SortedSet(
-                    key=lambda node: (node.overall_dist, node.dist_to_goal))
+            key=lambda node: (node.overall_dist, node.dist_to_goal))
 
+        self.start = self._height_map.start.coordinates
+        self.goal = self._height_map.goal.coordinates
         self.reset()
+
+    @property
+    def start(self) -> MapField:
+        return self._start.field
+
+    @start.setter
+    def start(self, value: Coordinates) -> None:
+        if value.x >= self._height_map.columns or value.x < 0:
+            raise ValueError(f"x = {value.x} not on map.")
+        if value.y >= self._height_map.rows or value.y < 0:
+            raise ValueError(f"y = {value.y} not on map.")
+        self._start = AStar.Node(self, x=value.x, y=value.y)
+
+    @property
+    def goal(self) -> MapField | None:
+        if self._goal is None:
+            return None
+        return self._goal.field
+
+    @goal.setter
+    def goal(self, value: Coordinates | None) -> None:
+        if value is None:
+            self._goal = None
+            return
+        if value.x >= self._height_map.columns or value.x < 0:
+            raise ValueError(f"x = {value.x} not on map.")
+        if value.y >= self._height_map.rows or value.y < 0:
+            raise ValueError(f"y = {value.y} not on map.")
+        self._goal = AStar.Node(self, x=value.x, y=value.y)
+
+    @property
+    def settings(self) -> AStar.Settings:
+        return self._settings
 
     @property
     def finished(self) -> bool:
         """This will be true if a shortest path has been found"""
         return self._finished
+
+    @property
+    def height_map(self) -> HeightMap:
+        return self._height_map
 
     def get_visited_squares(self) -> list[Coordinates]:
         """
@@ -414,11 +628,9 @@ class AStar:
 
     def reset(self) -> None:
         """Reset the search, discarding all current insights :)"""
-        self._path_tip_nodes.clear()
         self._nodes_in_paths.clear()
-        self._path_tip_nodes.add(AStar.Node(height_map=self._height_map,
-                                            x=self._height_map.start.x,
-                                            y=self._height_map.start.y))
+        self._path_tip_nodes.clear()
+        self._path_tip_nodes.add(self._start)
         self._finished = False
 
     def step(self) -> None:
@@ -429,18 +641,20 @@ class AStar:
         if self.finished:
             raise AStarFinishedError()
 
-        tip_nodes:     SortedSet[AStar.Node] = self._path_tip_nodes
+        get_neighbours = self.settings.node_neighbours
+        goal_reached = self.settings.goal_reached
+
+        tip_nodes: SortedSet[AStar.Node] = self._path_tip_nodes
         visited_nodes: dict[MapField, AStar.Node] = self._nodes_in_paths
-        current_node:  AStar.Node = tip_nodes.pop(0)
-        next_nodes:    list[AStar.Node] = self._get_reachable_neighbours(
-                                                              current_node)
+        current_node: AStar.Node = tip_nodes.pop(0)
+        next_nodes: list[AStar.Node] = get_neighbours(current_node)
         # remove the node we came from
         if current_node.previous in next_nodes:
             next_nodes.remove(current_node.previous)
 
         for node in next_nodes:
             # Found Goal
-            if node.field == self._height_map.goal:
+            if goal_reached(node):
                 node.previous = current_node
                 tip_nodes.clear()
                 tip_nodes.add(node)
@@ -467,32 +681,6 @@ class AStar:
                 self._path_tip_nodes.add(node)
 
         visited_nodes[current_node.field] = current_node
-
-    def _get_reachable_neighbours(self, node: Node) -> list[AStar.Node]:
-        """
-        Get the neighbours of a node that are reachable.
-
-        Reachable are adjacent nodes on the grid horizontally and vertically,
-        which height is not more than one larger than the node.
-        """
-
-        x: int = node.field.coordinates.x
-        y: int = node.field.coordinates.y
-        h: int = node.field.height
-        max_x: int = self._height_map.columns - 1
-        max_y: int = self._height_map.rows - 1
-        neighbours: list[AStar.Node] = list()
-
-        for i, j in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            xx = x + i
-            yy = y + j
-            if any([xx < 0, yy < 0, xx > max_x, yy > max_y]):
-                continue
-            nb_node = AStar.Node(height_map=self._height_map, x=xx, y=yy)
-            if (h + 1) >= nb_node.field.height:
-                neighbours.append(nb_node)
-
-        return neighbours
 
     @staticmethod
     def _get_index_by_coordinates(
@@ -544,6 +732,7 @@ class GuiMapGrid(tk.Canvas):
     A gui grid-widget that can display a height-map and the progress of an
     A-Star algorithm.
     """
+
     class Cell(NamedTuple):
         """
         A cell in the grid, consisting of the id of the corresponding rectangle,
@@ -567,11 +756,11 @@ class GuiMapGrid(tk.Canvas):
                  margin: int = 5):
 
         self.widgetName = "GuiMapGrid"
-        self._square_size: int = 0   # width and height of a square in px
-        self._line_width: int = 0    # width of the lines between the squares px
-        self._margin: int = 0        # margin around the grid in px
+        self._square_size: int = 0  # width and height of a square in px
+        self._line_width: int = 0  # width of the lines between the squares px
+        self._margin: int = 0  # margin around the grid in px
         self._height_map: HeightMap
-        self._cells: np.ndarray      # array with rectangle ids (cells of grid)
+        self._cells: np.ndarray  # array with rectangle ids (cells of grid)
 
         super().__init__(master=master)
 
@@ -637,12 +826,13 @@ class GuiMapGrid(tk.Canvas):
     def width(self) -> int:
         """Width in pixels"""
         return self.columns * (self.square_size + self.line_width) + \
-            2*self.margin
+            2 * self.margin
 
     @property
     def height(self) -> int:
         """Height in pixels"""
-        return self.rows * (self.square_size + self.line_width) + 2*self.margin
+        return self.rows * (
+                    self.square_size + self.line_width) + 2 * self.margin
 
     def clear_all_states(self, redraw: bool = True) -> None:
         """Set the state of all cells to GridCellState.unknown"""
@@ -710,7 +900,7 @@ class GuiMapGrid(tk.Canvas):
 
         font_size: int = 13
         if self.square_size <= 17:
-            font_size = round(self.square_size*0.95)
+            font_size = round(self.square_size * 0.95)
         font = tk_font.Font(family="Courier", size=font_size,
                             weight=tk_font.BOLD)
 
@@ -729,12 +919,12 @@ class GuiMapGrid(tk.Canvas):
                 s = self.square_size
                 o = self.outline_width
                 m = 1 + self._margin
-                x1 = m + c*(s+2*o)
+                x1 = m + c * (s + 2 * o)
                 x2 = x1 + s
-                y1 = m + r*(s+2*o)
+                y1 = m + r * (s + 2 * o)
                 y2 = y1 + s
                 rect_coord = (x1, y1, x2, y2)
-                label_coord = (((x1+x2)/2 - 1), ((y1+y2)/2 - 1))
+                label_coord = (((x1 + x2) / 2 - 1), ((y1 + y2) / 2 - 1))
                 self.coords(rect_id, rect_coord)
                 self.itemconfigure(rect_id,
                                    cnf=self._cell_style(cell).update(
@@ -821,12 +1011,17 @@ class Gui(tk.Tk):
     A Window with a grid to display a height map and show the progress of the
     A-Star algorithm.
     """
+
     def __init__(self, height_map: HeightMap):
         super().__init__()
 
         self._height_map: HeightMap = height_map
         self._a_star: AStar = AStar(height_map=self._height_map)
         # variables
+        # - are we running part 1 or part 2? -
+        self._part_var: tk.IntVar = tk.IntVar(master=self,
+                                              name="_part",
+                                              value=0)
         # - is the a-star currently paused? -
         self._paused_var: tk.BooleanVar = tk.BooleanVar(master=self,
                                                         name="_paused",
@@ -849,6 +1044,7 @@ class Gui(tk.Tk):
         self.dataGrid: GuiMapGrid
         # buttons
         self.buttonPanel: tk.Frame
+        self.partButton: tk.Button
         self.resetButton: tk.Button
         self.startButton: tk.Button
         self.pauseButton: tk.Button
@@ -861,7 +1057,8 @@ class Gui(tk.Tk):
 
         self.title("Advent of Code day 12")
         self.create_widgets()
-        self.reset()
+        self._part_var.set(2)
+        self.cycle_part()
 
     # noinspection PyAttributeOutsideInit
     def create_widgets(self):
@@ -887,27 +1084,34 @@ class Gui(tk.Tk):
         self.buttonPanel.rowconfigure(0, weight=1)
         self.buttonPanel.columnconfigure(4, weight=1)
 
+        # part
+        self.partButton = tk.Button(master=self.buttonPanel,
+                                    text="Part",
+                                    command=self.cycle_part)
+        self.partButton.grid(row=0, column=0, sticky=tk.W)
+        self._part_var.trace_add(mode="write",
+                                 callback=self._set_part_btn_text)
         # reset
         self.resetButton = tk.Button(master=self.buttonPanel,
                                      text="Reset",
                                      command=self.reset)
-        self.resetButton.grid(row=0, column=0, sticky=tk.W)
+        self.resetButton.grid(row=0, column=1, sticky=tk.W)
         # start
         self.startButton = tk.Button(master=self.buttonPanel,
                                      text="Start",
                                      command=self.start)
-        self.startButton.grid(row=0, column=1, sticky=tk.W)
+        self.startButton.grid(row=0, column=2, sticky=tk.W)
         # pause
         self.pauseButton = tk.Button(master=self.buttonPanel,
                                      text="Pause",
                                      command=self.pause)
-        self.pauseButton.grid(row=0, column=2, sticky=tk.W)
+        self.pauseButton.grid(row=0, column=3, sticky=tk.W)
         self._paused_var.trace_add(mode="write",
                                    callback=self._set_pause_btn_style)
         # draw interval
         draw_interval_bg = 'grey85'
         self.drawIntervalFrame = tk.Frame(master=self.buttonPanel)
-        self.drawIntervalFrame.grid(row=0, column=3,
+        self.drawIntervalFrame.grid(row=0, column=4,
                                     padx=100, pady=0, ipadx=2, ipady=2)
         self.drawIntervalFrame.configure(background=draw_interval_bg,
                                          borderwidth=2,
@@ -928,12 +1132,26 @@ class Gui(tk.Tk):
         # path length label
         self.pathLengthLabel = tk.Label(master=self.buttonPanel,
                                         textvariable=self._path_len_var)
-        self.pathLengthLabel.grid(row=0, column=4)
+        self.pathLengthLabel.grid(row=0, column=5)
         # quit
         self.quitButton = tk.Button(master=self.buttonPanel,
                                     text="Quit",
                                     command=self.close)
-        self.quitButton.grid(row=0, column=5, sticky=tk.E)
+        self.quitButton.grid(row=0, column=6, sticky=tk.E)
+
+    def cycle_part(self) -> None:
+        """Change between different parts of the day 12 callenge."""
+        cpart = self._part_var.get()
+        if cpart == 1:
+            # switch to part 2
+            self._setup_a_star_part2()
+            self._part_var.set(2)
+        elif cpart == 2:
+            # switch to part 1
+            self._setup_a_star_part1()
+            self._part_var.set(1)
+        else:
+            raise ValueError(f"Invalid Part setting: {cpart}")
 
     def reset(self) -> None:
         if self._a_star_thread is not None:
@@ -991,6 +1209,27 @@ class Gui(tk.Tk):
         else:
             # un-paused
             self.pauseButton.configure(relief="raised")
+
+    def _set_part_btn_text(self, *args) -> None:
+        """Change the text of the part button"""
+        part = self._part_var.get()
+        self.partButton.configure(text=f"Part {part} (click to switch)")
+
+    def _setup_a_star_part1(self) -> None:
+        """Configure the A-Star algorithm to run part 1"""
+        a_star = self._a_star
+        a_star.start = self._height_map.start.coordinates
+        a_star.goal = self._height_map.goal.coordinates
+        a_star.settings.part = AStar.Settings.Part.ONE
+        self.reset()
+
+    def _setup_a_star_part2(self) -> None:
+        """Configure the A-Star algorithm to run part 2"""
+        a_star = self._a_star
+        a_star.start = self._height_map.goal.coordinates
+        a_star.goal = None
+        a_star.settings.part = AStar.Settings.Part.TWO
+        self.reset()
 
     def _run_a_star(self, do_run: Event, abort: Event, interval: tk.IntVar) \
             -> None:
@@ -1055,11 +1294,7 @@ class Day12(DayChallenge):
         # remove empty last line
         data = [d for d in data if d]
 
-        # PART 1
-        print("Part 1:")
+        # PART 1 & 2
         height_map: HeightMap = HeightMap(data)
         gui = Gui(height_map=height_map)
         gui.mainloop()
-
-        # PART 2
-        print("\nPart 2:")

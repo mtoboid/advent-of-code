@@ -271,7 +271,8 @@ class Cave:
         """Raised when a grain dropped into the void"""
 
     def __init__(self, rows: int, columns: int,
-                 sand_entry: Coordinates = Coordinates(x=500, y=0)):
+                 sand_entry: Coordinates = Coordinates(x=500, y=0),
+                 add_floor: bool = False):
         if sand_entry.x < 0 or sand_entry.x > columns \
         or sand_entry.y < 0 or sand_entry.y > rows:
             raise ValueError("Sand entry point not in cave.")
@@ -279,11 +280,17 @@ class Cave:
         self.rows: int = rows
         self.columns: int = columns
         self.sand_entry: Coordinates = sand_entry
+        if add_floor:
+            self.rows += 2
+            self.columns *= 2
         self.squares: np.ndarray[Cave.cave_square] = np.full(
             shape=(self.rows, self.columns),
             dtype=Cave.cave_square,
             fill_value=False
         )
+        if add_floor:
+            self.add_rock_path(from_=Coordinates(x=0, y=self.rows-1),
+                               to_=Coordinates(x=self.columns-1, y=self.rows-1))
 
     def __repr__(self) -> str:
         return self.squares.__repr__()
@@ -405,6 +412,22 @@ class Day14(DayChallenge):
 
         # PART 2
         print("\nPart 2:")
+        cave = Cave(rows=min_max[3]+1,
+                    columns=min_max[2]+1,
+                    sand_entry=Coordinates(500, 0),
+                    add_floor=True)
+        # inner structure
+        for line in data:
+            if line:
+                end_points = Day14.parse_input_line(line)
+                for _from, _to in zip(end_points[:-1], end_points[1:]):
+                    cave.add_rock_path(from_=_from, to_=_to)
+        # pour sand grains
+        while cave.pour_one_grain_of_sand():
+            if cave.squares['sand'][cave.sand_entry.y, cave.sand_entry.x]:
+                break
+        print(cave)
+        print(f"\nFinal grain count in cave: {cave.sand_grain_count}")
 
     @staticmethod
     def max_min_of_input(data: list[str]) -> tuple[int, int, int, int]:

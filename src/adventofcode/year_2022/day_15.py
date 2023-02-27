@@ -231,6 +231,15 @@ class Line1D(Line):
         super().__init__(start=self.to_line_coordinates(self.start_1d),
                          end=self.to_line_coordinates(self.end_1d))
 
+    def __repr__(self) -> str:
+        return f"{self.__class__}: ({self.fixed_dimension}=" \
+               f"{self.fixed_dimension_value}) " \
+               f"{self.start_1d} - {self.end_1d}"
+
+    def __str__(self) -> str:
+        return f"{self.start_1d} - {self.end_1d} " \
+               f"({self.fixed_dimension}={self.fixed_dimension_value})"
+
     def __hash__(self) -> int:
         return hash((self.fixed_dimension_value, self.start_1d, self.end_1d))
 
@@ -241,6 +250,9 @@ class Line1D(Line):
                and self.fixed_dimension_value == other.fixed_dimension_value \
                and self.start_1d == other.start_1d \
                and self.end_1d == other.end_1d
+
+    def __len__(self) -> int:
+        return self.end_1d - self.start_1d
 
     @property
     def fixed_dimension(self) -> Dimension:
@@ -382,11 +394,11 @@ class Line1D(Line):
         fixed_dim = self.fixed_dimension
         fixed_val = self.fixed_dimension_value
         if other.start_1d < self.start_1d:
-            line_left = Line1D(start=other.start_1d, end=self.start_1d,
+            line_left = Line1D(start=other.start_1d, end=self.start_1d-1,
                                fixed_dimension_value=fixed_val,
                                fixed_dimension=fixed_dim)
         if other.end_1d > self.end_1d:
-            line_right = Line1D(start=self.end_1d, end=other.end_1d,
+            line_right = Line1D(start=self.end_1d+1, end=other.end_1d,
                                 fixed_dimension_value=fixed_val,
                                 fixed_dimension=fixed_dim)
         return line_left, line_right
@@ -432,7 +444,15 @@ class Line1DSet:
         new_line: Line1D = Line1D.from_line(line)
 
         if not self._line_in_set_dim(new_line):
-            raise ValueError("Line not appropriate for current set.")
+            # deal with the case of a line of length zero (point)
+            if len(new_line) == 0 \
+                    and new_line.start_1d == self.fixed_dimension_value:
+                new_line = Line1D(start=new_line.fixed_dimension_value,
+                                  end=new_line.fixed_dimension_value,
+                                  fixed_dimension=self.fixed_dimension,
+                                  fixed_dimension_value=new_line.start_1d)
+            else:
+                raise ValueError("Line not appropriate for current set.")
 
         # transfer lines left of new line
         while len(self._lines) > 0 \
@@ -571,6 +591,30 @@ class Day15(DayChallenge):
 
         # PART 2
         print("\nPart 2:")
+        max_val: int = 4_000_000
+        for row in range(0, max_val+1):
+            whole_row = Line1DSet(fixed_dimension=Dimension.Y,
+                                  fixed_dimension_value=row)
+            whole_row.add(Line1D(start=0, end=max_val,
+                                 fixed_dimension=Dimension.Y,
+                                 fixed_dimension_value=row))
+            row_exclusions = Line1DSet(fixed_dimension=Dimension.Y,
+                                       fixed_dimension_value=row)
+            for circ in exclusion_circles:
+                line = circ.get_intersecting_line(y=row)
+                if line is not None:
+                    row_exclusions.add(line)
+
+            not_excluded = row_exclusions.difference(whole_row)
+            if len(not_excluded) > 0:
+                print(f"Row {row}, not excluded: {not_excluded}")
+                x = min([n.start_1d for n in not_excluded])
+                y = not_excluded.fixed_dimension_value
+                print(f"Tuning frequency: {x * max_val + y}")
+                break
+            else:
+                if row % 100_000 == 0:
+                    print(f"Up to row {row}, all excluded.")
 
     @staticmethod
     def parse_input_line(line: str) -> tuple[Coordinates, Coordinates]:

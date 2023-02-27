@@ -177,14 +177,12 @@ class Line:
     def __init__(self, start: Coordinates, end: Coordinates):
         self._start: Coordinates
         self._end: Coordinates
-        self._slope: Fraction
 
         if start.x > end.x:
             start, end = end, start
 
         self._start = start
         self._end = end
-        self._slope = Fraction(end.y - start.y, end.x - start.x)
 
     def __len__(self) -> int:
         return Coordinates.manhattan_dist(self.start, self.end)
@@ -205,39 +203,92 @@ class Line:
     def end(self) -> Coordinates:
         return self._end
 
-    @property
-    def slope(self) -> Fraction:
-        return self._slope
-
 
 class Dimension(Enum):
+    UNSET = 0
     X = 1
     Y = 2
 
     
-class StraightLine(Line):
+class Line1D(Line):
     """
-    A straight line where x or y stay the same.
+    A line in a 1D subspace of a 2D coordinate system
+    (the x or y dimension are fixed), and the line is parallel to either the
+    x- or y-axis.
     """
-    def __init__(self, start: Coordinates, end: Coordinates):
-        self._fixed_dimension: Dimension
-        
-        if start.x != end.x and start.y != end.y:
-            raise ValueError("Coordinates do not describe a straight line.")
-        if start.x == end.x:
-            self._fixed_dimension = Dimension.X
-        elif start.y == end.y:
-            self._fixed_dimension = Dimension.Y
-        else:
-            raise ValueError("Fixed dimension could not be set.")
-        super().__init__(start=start, end=end)
+    def __init__(self,
+                 start: int,
+                 end: int,
+                 fixed_dimension_value: int,
+                 fixed_dimension: Dimension = Dimension.Y):
+        if end < start:
+            start, end = end, start
+        self._start_1d: int = start
+        self._end_1d: int = end
+        self._fixed_dimension_value: int = fixed_dimension_value
+        self._fixed_dimension: Dimension = fixed_dimension
+
+        super().__init__(start=self.to_line_coordinates(self.start_1d),
+                         end=self.to_line_coordinates(self.end_1d))
+
+    def __hash__(self) -> int:
+        return hash((self.fixed_dimension_value, self.start_1d, self.end_1d))
+
+    def __eq__(self, other):
+        if not isinstance(other, Line1D):
+            return NotImplemented
+        return self.fixed_dimension == other.fixed_dimension \
+               and self.fixed_dimension_value == other.fixed_dimension_value \
+               and self.start_1d == other.start_1d \
+               and self.end_1d == other.end_1d
 
     @property
     def fixed_dimension(self) -> Dimension:
         return self._fixed_dimension
 
+    @property
+    def fixed_dimension_value(self) -> int:
+        return self._fixed_dimension_value
+
+    @property
+    def start_1d(self) -> int:
+        return self._start_1d
+
+    @property
+    def end_1d(self) -> int:
+        return self._end_1d
+
     @staticmethod
-    def is_straight(line: Line) -> bool:
+    def from_coordinates(start: Coordinates, end: Coordinates) -> Line1D:
+        """Return a Line1D when the coordinates describe one."""
+
+        fixed_dimension: Dimension
+        start_val: int
+        end_val: int
+        fixed_val: int
+
+        if start.x != end.x and start.y != end.y:
+            raise ValueError("Coordinates do not describe a 1 dimensional "
+                             "line.")
+        if start.x == end.x:
+            fixed_dimension = Dimension.X
+            fixed_val = start.x
+            start_val = start.y
+            end_val = end.y
+        elif start.y == end.y:
+            fixed_val = start.y
+            fixed_dimension = Dimension.Y
+            start_val = start.x
+            end_val = end.x
+        else:
+            raise ValueError("Fixed dimension could not be determined.")
+
+        return Line1D(start=start_val, end=end_val,
+                      fixed_dimension_value=fixed_val,
+                      fixed_dimension=fixed_dimension)
+
+    @staticmethod
+    def is_one_dimensional(line: Line) -> bool:
         """Check if a line is a straight line."""
         if line.start.x != line.end.x \
         and line.start.y != line.end.y:
@@ -245,13 +296,35 @@ class StraightLine(Line):
         return True
 
     @staticmethod
-    def to_straight_line(line: Line) -> StraightLine:
-        """Cast a Line to a StraightLine."""
-        if not StraightLine.is_straight(line):
-            raise ValueError("Not a straight line.")
-        return StraightLine(line.start, line.end)
+    def from_line(line: Line) -> Line1D:
+        """Cast a Line to a Line1D."""
+        if not Line1D.is_one_dimensional(line):
+            raise ValueError("Not a one dimensional line.")
+        return Line1D.from_coordinates(line.start, line.end)
 
-    def combinable(self, other: StraightLine) -> bool:
+    def to_line_coordinates(self, value: int) -> Coordinates:
+        """Add the fixed dimension value for a value on the line."""
+        if self.start_1d > value > self.end_1d:
+            raise ValueError("Value not on line.")
+
+        fixed: int = self.fixed_dimension_value
+
+        if self.fixed_dimension == Dimension.X:
+            return Coordinates(x=fixed, y=value)
+        elif self.fixed_dimension == Dimension.Y:
+            return Coordinates(x=value, y=fixed)
+        else:
+            return NotImplemented
+
+    def is_in_same_dim(self, other: Line1D) -> bool:
+        """Are both lines in the same 1D subspace?"""
+        if self.fixed_dimension == other.fixed_dimension \
+                and self.fixed_dimension_value == other.fixed_dimension_value:
+            return True
+        else:
+            return False
+
+    def combinable(self, other: Line1D) -> bool:
         """
         Determine if this line and the other line could be combined into
         another line.
@@ -260,54 +333,66 @@ class StraightLine(Line):
             True if the lines have the same slope and overlap otherwise False.
         """
 
-        get_flexible_dim: Callable[[Coordinates], int]
-
-        if self.fixed_dimension != other.fixed_dimension:
-            return False
-        if self.fixed_dimension == Dimension.X:
-            if self.start.x != other.start.x:
-                return False
-
-            def get_flexible_dim(coord: Coordinates) -> int:
-                return coord.y
-
-        elif self.fixed_dimension == Dimension.Y:
-            if self.start.y != other.start.y:
-                return False
-
-            def get_flexible_dim(coord: Coordinates) -> int:
-                return coord.x
-        else:
+        if not self.is_in_same_dim(other):
             return False
 
-        a1: int = get_flexible_dim(self.start)
-        a2: int = get_flexible_dim(self.end)
-        if a1 > a2:
-            a1, a2 = a2, a1
-        b1: int = get_flexible_dim(other.start)
-        b2: int = get_flexible_dim(other.end)
-        if b1 > b2:
-            b1, b2 = b2, b1
+        # check if the lines are overlapping
 
-        # line b right of a (a2 on b?)
-        if a1 <= b1:
-            return b1 <= a2
-        # line b left of a
+        # self left of other
+        if self.start_1d <= other.start_1d:
+            # if end also left of start they are not overlapping
+            return self.end_1d >= other.start_1d
+
+        # self right of other
         else:
-            return a1 <= b2
+            # if self.start right of other.end they are not overlapping
+            return other.end_1d >= self.start_1d
 
-    def combine(self, other: StraightLine) -> StraightLine:
+    def combine(self, other: Line1D) -> Line1D:
         """Combine two lines into one."""
         if not self.combinable(other):
             raise ValueError("Lines can't be combined.")
-        coordinates = (self.start, self.end, other.start, other.end)
-        x = [c.x for c in coordinates]
-        y = [c.y for c in coordinates]
-        return StraightLine(Coordinates(x=min(x), y=min(y)),
-                            Coordinates(x=max(x), y=max(y)))
+
+        values = [self.start_1d, self.end_1d, other.start_1d, other.end_1d]
+
+        return Line1D(start=min(values), end=max(values),
+                      fixed_dimension_value=self.fixed_dimension_value,
+                      fixed_dimension=self.fixed_dimension)
+
+    def difference(self, other: Line1D) -> tuple[Line1D | None, ...]:
+        """
+        Return line parts that are covered by the other line but not the
+        current line.
+        :return:
+            None      - if both lines are the same;
+            one line  - if the other line is longer and the current line
+                        overlaps at one end;
+            two lines - if the other line is longer, and the current line is
+                        in the middle.
+        """
+        # complete overlap
+        if self == other:
+            return None,
+        # no overlap
+        if not self.combinable(other):
+            return other,
+        # overlapping to certain degree
+        line_left: Line1D | None = None
+        line_right: Line1D | None = None
+        fixed_dim = self.fixed_dimension
+        fixed_val = self.fixed_dimension_value
+        if other.start_1d < self.start_1d:
+            line_left = Line1D(start=other.start_1d, end=self.start_1d,
+                               fixed_dimension_value=fixed_val,
+                               fixed_dimension=fixed_dim)
+        if other.end_1d > self.end_1d:
+            line_right = Line1D(start=self.end_1d, end=other.end_1d,
+                                fixed_dimension_value=fixed_val,
+                                fixed_dimension=fixed_dim)
+        return line_left, line_right
 
 
-class StraightLineSet:
+class Line1DSet:
     """
     A set of lines that never contains any overlapping lines.
 
@@ -315,8 +400,12 @@ class StraightLineSet:
     the LineSet, the lines will be merged.
     """
 
-    def __init__(self):
-        self._lines: list[StraightLine] = list()
+    def __init__(self,
+                 fixed_dimension: Dimension,
+                 fixed_dimension_value: int):
+        self._fixed_dimension: Dimension = fixed_dimension
+        self._fixed_dimension_value: int = fixed_dimension_value
+        self._lines: list[Line1D] = list()
 
     def __iter__(self):
         return self._lines.__iter__()
@@ -330,16 +419,67 @@ class StraightLineSet:
     def __repr__(self):
         return repr(self._lines)
 
+    @property
+    def fixed_dimension(self) -> Dimension:
+        return self._fixed_dimension
+
+    @property
+    def fixed_dimension_value(self) -> int:
+        return self._fixed_dimension_value
+
     def add(self, line: Line) -> None:
-        new_set: list[StraightLine] = list()
-        new_line: StraightLine = StraightLine.to_straight_line(line)
-        for ln in self._lines:
-            if ln.combinable(new_line):
-                new_line = new_line.combine(ln)
-            else:
-                new_set.append(ln)
+        new_set: list[Line1D] = list()
+        new_line: Line1D = Line1D.from_line(line)
+
+        if not self._line_in_set_dim(new_line):
+            raise ValueError("Line not appropriate for current set.")
+
+        # transfer lines left of new line
+        while len(self._lines) > 0 \
+                and self._lines[0].end_1d < new_line.start_1d:
+            new_set.append(self._lines.pop(0))
+        # combine combinable lines
+        while len(self._lines) > 0 \
+                and new_line.combinable(self._lines[0]):
+            new_line = new_line.combine(self._lines.pop(0))
         new_set.append(new_line)
+        # add remaining lines
+        new_set.extend(self._lines)
         self._lines = new_set
+
+    def difference(self, other: Line1DSet) -> Line1DSet:
+        """
+        Return a new Line1DSet that contains segments present in the other set
+        and not the current set.
+        """
+
+        if not (self.fixed_dimension == other.fixed_dimension
+                and self.fixed_dimension_value == other.fixed_dimension_value):
+            raise ValueError("Only sets in the same subspace can be compared.")
+
+        diff_set: Line1DSet = Line1DSet(
+            fixed_dimension=self.fixed_dimension,
+            fixed_dimension_value=self.fixed_dimension_value)
+        next_segment: list[Line1D] = list(other)
+        comp_lines: list[Line1D] = list(self)
+
+        while len(next_segment) > 0 and len(comp_lines) > 0:
+            c_line = comp_lines.pop(0)
+            n_line = next_segment.pop(0)
+            # diff
+            left_part, right_part = c_line.difference(n_line)
+            if left_part is not None:
+                diff_set.add(left_part)
+            if right_part is not None:
+                next_segment.insert(0, right_part)
+        for segment in next_segment:
+            diff_set.add(segment)
+
+        return diff_set
+
+    def _line_in_set_dim(self, line: Line1D) -> bool:
+        return self.fixed_dimension == line.fixed_dimension \
+               and self.fixed_dimension_value == line.fixed_dimension_value
 
 
 class ManhattanCircle:
@@ -416,7 +556,9 @@ class Day15(DayChallenge):
             for pair in sensor_beacon_pairs
         ]
         # only on line y=2_000_000
-        line_x_exclusions: StraightLineSet = StraightLineSet()
+        line_x_exclusions: Line1DSet = Line1DSet(
+            fixed_dimension=Dimension.Y,
+            fixed_dimension_value=2_000_000)
         for circ in exclusion_circles:
             line = circ.get_intersecting_line(y=2_000_000)
             if line is not None:

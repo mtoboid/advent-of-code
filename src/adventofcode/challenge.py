@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
+from timeit import default_timer as timer
 
 from .errors import AdventOfCodeError
 from .input_data import InputData
@@ -69,4 +70,7 @@ class ChallengesList:
             raise ChallengeNotDefined(day)
         challenge: DayChallenge = self.challenges[day]
         print(f"Running {challenge.year} day {challenge.day}:\n")
+        start_time = timer()
         challenge.run(self.input_data.day(day))
+        end_time = timer()
+        print(f"\nRunning time: {end_time - start_time} s")

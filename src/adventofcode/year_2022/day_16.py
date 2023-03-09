@@ -266,10 +266,9 @@ pressure you could release?
 
 from __future__ import annotations
 
-from timeit import default_timer as timer
-
 import numpy as np
 
+from itertools import combinations_with_replacement
 from re import compile, Match, Pattern
 from typing import NamedTuple, Iterable
 
@@ -293,11 +292,13 @@ class Graph:
 
     def __init__(self, valves: Iterable[Valve]):
         # the nodes (vertices)
-        self.nodes: dict[int, Graph.IntValve] = dict()
+        self.nodes: dict[int, Graph.IntValve]
         # conversion from string id to numerical id
-        self.ids: list[str] = list()
+        self.ids: list[str]
         # pairwise distance matrix (shortest distances)
         self.distances: np.ndarray
+        # nodes with flow-rate above 0
+        self.flow_nodes: list[int]
 
         self.ids = [valve.id for valve in valves]
         self.nodes = {
@@ -309,6 +310,8 @@ class Graph:
             for valve in valves
         }
         self.distances = Graph._calculate_pairwise_distances(self.nodes)
+        self.flow_nodes = [node.id for node in self.nodes.values()
+                           if node.flow_rate > 0]
 
     def max_pressure_release(self, timelimit: int, start_node: str) -> int:
         """
@@ -317,41 +320,82 @@ class Graph:
         """
         if start_node not in self.ids:
             raise ValueError("Start node not in network.")
-        node_id = self.ids.index(start_node)
-        # FIXME this does not account for switching on a starting node
-        # (which would be a problem if the flow rate is > 0)
-        return self.dfs(node_id, 0, 0, timelimit)
+        start_node_id = self.ids.index(start_node)
+        possible_paths = self.calc_possible_paths(start_node_id, timelimit)
+        max_release = max(possible_paths.values())
+        return max_release
 
-    def dfs(self, node: int, time: int, bitmask_visited: int, timelimit: int)\
-            -> int:
+    def max_pressure_release_v2(self, timelimit: int, start_node: str) -> int:
         """
-        Perform a depth first search on the pairwise distances, starting at
-        the given node with time left. If a node was visited is saved as a
-        bitmask, where 0001 is node 0, 0010 is node 1, 0100 is node 2, ...
-        :return:
-            max pressure released
+        Calculate the max pressure release after training an elefant to help.
         """
+        class PathCombo(NamedTuple):
+            pressure_release: int
+            path1: int
+            path2: int
 
-        if time >= timelimit:
-            return 0
-        bitmask: int = (1 << node)
-        # check if the node has already been visited
-        if bitmask & bitmask_visited != 0:
-            return 0
-        # mark node as visited
-        bitmask = bitmask | bitmask_visited
-        # get pressure release from possible continuations of the path
-        current_node: Graph.IntValve = self.nodes[node]
-        following = [self.dfs(node=n,
-                              time=time + self.distances[node][n] + 1,
-                              bitmask_visited=bitmask,
-                              timelimit=timelimit)
-                     for n in range(len(self.ids))
-                     if self.nodes[n].flow_rate > 0]
-        pressure_released = \
-            current_node.flow_rate * (timelimit - time) + max(following)
+        if start_node not in self.ids:
+            raise ValueError("Start node not in network.")
+        start_node_id = self.ids.index(start_node)
 
-        return pressure_released
+        # get possible paths
+        paths = self.calc_possible_paths(start_node_id, timelimit)
+
+        # choose the two, mutually exclusive, best paths
+        path_combos: list[PathCombo] = [
+            PathCombo(pressure_release=paths[p1]+paths[p2],
+                      path1=p1, path2=p2)
+            for p1, p2 in combinations_with_replacement(paths, 2)
+            if p1 & p2 == 0
+        ]
+
+        max_pressure_release = max([combo.pressure_release
+                                    for combo in path_combos])
+        return max_pressure_release
+
+    def calc_possible_paths(self, start_node: int, timelimit: int) \
+            -> dict[int, int]:
+        """
+        Calculate all possible paths and pressure release, when starting from
+        the specified node.
+        :returns:
+            dictionary with
+            key=bitmask of visited nodes;
+            value=total pressure released
+        """
+        def visit_node(node: int, time: int, pressure_released: int,
+                       bitmask_visited: int) -> None:
+            bitmask: int = (1 << node)
+            flow_rate: int = self.nodes[node].flow_rate
+
+            # time has run out
+            if time > timelimit:
+                return
+            # node already visited
+            if bitmask_visited & bitmask > 0:
+                return
+            # release pressure
+            pressure_released += flow_rate * (timelimit - time)
+            # update paths
+            bitmask = bitmask_visited | bitmask
+            if bitmask not in paths:
+                paths[bitmask] = pressure_released
+            else:
+                paths[bitmask] = max(paths[bitmask], pressure_released)
+            # visit other nodes
+            for n in self.flow_nodes:
+                dist = self.distances[node][n]
+                visit_node(n, time=time + dist + 1,
+                           pressure_released=pressure_released,
+                           bitmask_visited=bitmask)
+
+        paths: dict[int, int] = {}
+
+        for n in self.flow_nodes:
+            dist = self.distances[start_node][n]
+            visit_node(n, time=dist + 1, pressure_released=0, bitmask_visited=0)
+
+        return paths
 
     @staticmethod
     def _calculate_pairwise_distances(nodes: dict[str, Graph.IntValve]) -> \
@@ -362,7 +406,7 @@ class Graph:
         """
         n: int = len(nodes)
         # use a value larger than achievable by any choice of path as infinity
-        infinity = n*n
+        infinity = n * n
         distances: np.ndarray = np.full(shape=(n, n), dtype=int,
                                         fill_value=infinity)
         # set values were direct connections exist to one
@@ -405,42 +449,20 @@ class Day16(DayChallenge):
         with input_data.open() as file:
             data = file.read().split("\n")
 
-        # PART 1
-        print("Part 1:")
         valves = [Day16.parse_input_line(line)
                   for line in data if line]
         graph = Graph(valves)
+
+        # PART 1
+        print("Part 1:")
         max_release = graph.max_pressure_release(30, 'AA')
         print(f"max pressure release: {max_release}")
 
         # PART 2
         print("\nPart 2:")
-
-    def test(self) -> None:
-        example_input: str = """
-        Valve AA has flow rate=0; tunnels lead to valves DD, II, BB
-        Valve BB has flow rate=13; tunnels lead to valves CC, AA
-        Valve CC has flow rate=2; tunnels lead to valves DD, BB
-        Valve DD has flow rate=20; tunnels lead to valves CC, AA, EE
-        Valve EE has flow rate=3; tunnels lead to valves FF, DD
-        Valve FF has flow rate=0; tunnels lead to valves EE, GG
-        Valve GG has flow rate=0; tunnels lead to valves FF, HH
-        Valve HH has flow rate=22; tunnel leads to valve GG
-        Valve II has flow rate=0; tunnels lead to valves AA, JJ
-        Valve JJ has flow rate=21; tunnel leads to valve II
-        """
-
-        valves = [Day16.parse_input_line(line)
-                  for line in example_input.split("\n")
-                  if line.strip()]
-
-        graph = Graph(valves)
-        start = timer()
-        graph.max_pressure_release(30, 'AA')
-        print(timer() - start)
-        for i in range(100):
-            graph.max_pressure_release(30, 'AA')
-        print(timer() - start)
+        max_release_p2 = graph.max_pressure_release_v2(26, 'AA')
+        print(f"max pressure release with an elefant in the team: "
+              f"{max_release_p2}")
 
     @staticmethod
     def parse_input_line(line: str) -> Valve:

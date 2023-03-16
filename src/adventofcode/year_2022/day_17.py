@@ -365,30 +365,39 @@ tall.
 How many units tall will the tower of rocks be after 2022 rocks have stopped
 falling?
 
+
+--- Part Two ---
+
+The elephants are not impressed by your simulation. They demand to know how
+tall the tower will be after 1000000000000 rocks have stopped! Only then will
+they feel confident enough to proceed through the cave.
+
+In the example above, the tower would be 1514285714288 units tall!
+
+How tall will the tower be after 1000000000000 rocks have stopped?
+
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import NamedTuple
+from itertools import chain
+from typing import NamedTuple, Iterable
 
 from adventofcode.challenge import DayChallenge, Path
 
 
-class Coordinates(NamedTuple):
-    x: int
-    y: int
-
-
 class Direction(Enum):
+    """A direction going straight (up, down, right, left)"""
     up = 0
-    left = 1
+    right = 1
     down = 2
-    right = 3
+    left = 3
 
     @staticmethod
     def invert(direction: Direction) -> Direction:
+        """Get the opposite direction."""
         if direction == Direction.up:
             return Direction.down
         if direction == Direction.down:
@@ -397,6 +406,39 @@ class Direction(Enum):
             return Direction.right
         if direction == Direction.right:
             return Direction.left
+
+
+class Coordinates(NamedTuple):
+    """Coordinates of a square on a grid. 0|0 is bottom left!"""
+    x: int
+    y: int
+
+    def get_adjacent(self, direction: Direction) -> Coordinates:
+        """Get adjacent coordinates."""
+        if direction == direction.up:
+            return Coordinates(x=self.x, y=self.y + 1)
+        if direction == direction.right:
+            return Coordinates(x=self.x + 1, y=self.y)
+        if direction == direction.down:
+            return Coordinates(x=self.x, y=self.y - 1)
+        if direction == direction.left:
+            return Coordinates(x=self.x - 1, y=self.y)
+
+    def get_direction(self, other: Coordinates) -> Direction | None:
+        """
+        Determine in which direction another adjacent pair of coordinates is.
+        :returns:
+            the direction (if adjacent) otherwise none
+        """
+        directions = {Coordinates(self.x, self.y + 1): Direction.up,
+                      Coordinates(self.x, self.y - 1): Direction.down,
+                      Coordinates(self.x - 1, self.y): Direction.left,
+                      Coordinates(self.x + 1, self.y): Direction.right}
+
+        if other in directions:
+            return directions[other]
+        else:
+            return None
 
 
 class Rock(ABC):
@@ -569,6 +611,133 @@ class Square(Rock):
         return fields
 
 
+class Contour(frozenset[Coordinates]):
+    """A contour made up of coordinates"""
+
+    def __new__(cls, coordinates: Iterable[Coordinates], *args, **kwargs):
+        return super(Contour, cls).__new__(cls, coordinates)
+
+    def __init__(self, coordinates: Iterable[Coordinates]):
+        super().__init__()
+
+    @property
+    def height(self) -> int:
+        y = [coord.y for coord in self]
+        return max(y) - min(y)
+
+    @staticmethod
+    def trace(cave: Cave) -> Contour:
+        # To determine the contour of the top of the rubble we are going to
+        # trace it by getting the coordinates of the topmost rock coordinates,
+        # as only these can stop a falling rock...
+
+        # tracing can be imagined like this (. free space, $ rock, x trace path)
+        #
+        # |.....|    |.....|    |.....|    |.....|
+        # |$....|    |x....|    |x....|    |x....|
+        # |$$..$|    |xx..$|    |xx..$|    |xx..x|
+        # +-----+    +-x---+    +-xxxx+    +-xxxx+
+        #    1          2          3          4
+        # trace from top left to bottom (1-3) then up to top (4) - the path
+        # marked by x's is then the contour.
+        #
+
+        # directions
+        up = Direction.up
+        right = Direction.right
+        down = Direction.down
+        left = Direction.left
+
+        # order in which to move next depending on the last move direction
+        # (sorted by priority)
+        next_field: dict[Direction, list[Direction]] = {
+            up: [left, up, right],
+            right: [up, right, down],
+            down: [right, down, left],
+            left: [down, left, up]}
+
+        # the rocks to trace
+        rocks: list[list[bool]] = cave.rubble
+        # stack with squares to investigate
+        next_squares: list[Coordinates] = list()
+        contour: list[Coordinates] = list()
+
+        top: int = len(rocks) - 1
+        right_cave_wall: int = len(rocks[0])
+        contour_end: Coordinates
+
+        # set contour start as the leftmost-topmost square with rock
+        x = 0
+        y = top
+        while not rocks[y][x]:
+            y -= 1
+        next_squares.append(Coordinates(x=x, y=y))
+
+        # set contour end as rightmost-topmost square with rock
+        x = right_cave_wall - 1
+        y = top
+        while not rocks[y][x]:
+            y -= 1
+        contour_end = Coordinates(x=x, y=y)
+
+        # tracing loop variables
+        current_square: Coordinates
+        current_direction: Direction
+
+        # helper functions
+        def get_adjacent_squares(square: Coordinates) -> list[Coordinates]:
+            """Return rock-squares adjacent to the passed square"""
+            nonlocal current_direction, next_field, top, right_cave_wall, rocks
+
+            # all adjacent squares
+            squares = [square.get_adjacent(direction)
+                       for direction in next_field[current_direction]]
+            # squares in cave and with rock
+            squares = [s for s in squares
+                       if 0 <= s.x < right_cave_wall and
+                          0 <= s.y <= top and
+                          rocks[s.y][s.x]]
+            # return inverted to have the highest priority last
+            return squares[::-1]
+
+        def set_direction() -> Direction:
+            """Determine the direction of movement we are currently in"""
+            nonlocal current_square, contour
+            if len(contour) < 1:
+                return Direction.down
+            direction = None
+            idx = 1
+            while direction is None and idx <= len(contour):
+                direction = contour[-idx].get_direction(current_square)
+                idx += 1
+            return direction
+
+        # trace the contour by always taking the square reaching into the void
+        # of the cave
+        #   |......x|   . empty square
+        #   |x...xxx|   # rock square - NOT in contour
+        #   |xxx...x|   x rock square IN contour
+        #   |#x....x|
+        #   |#xx.xxx|
+        #   |##xxx##|
+        #
+        while next_squares[-1] != contour_end:
+            current_square = next_squares.pop()
+            # set direction we are moving in (determines choice of next squares)
+            current_direction = set_direction()
+            next_squares.extend(get_adjacent_squares(current_square))
+            contour.append(current_square)
+
+        contour.append(contour_end)
+
+        # normalize the contour
+        # (allow comparison irrespective of the height at which they occur)
+        y_min = min([c.y for c in contour])
+        contour_norm = [Coordinates(x=c.x, y=c.y - y_min) for c in contour]
+
+        return Contour(contour_norm)
+
+
 class Cave:
     """A cave in which rocks are falling from the ceiling."""
     WIDTH: int = 7  # width of the cave (squares)
@@ -616,7 +785,13 @@ class Cave:
         # pattern for jets
         self.jet: Cave.Jet = Cave.Jet(jet_pattern)
         # rocks in the cave
+        self._n_rocks: int = 0
         self.rubble: list[list[bool]] = [[True] * Cave.WIDTH]
+
+    @property
+    def nr_rocks(self) -> int:
+        """The number of rocks in the cave."""
+        return self._n_rocks
 
     @property
     def rock_pile_height(self) -> int:
@@ -636,19 +811,19 @@ class Cave:
                                         rock.height +
                                         fall_height)
             # drop rock
-            while not self.is_colliding(rock):
-                self.move_rock_with_jet(rock)
+            while not self._is_colliding(rock):
+                self._move_rock_with_jet(rock)
                 rock.move_down()
             # reached bottom
             rock.move_up()  # undo last move
-            self.add_rock_to_rubble(rock)
+            self._add_rock_to_rubble(rock)
 
-    def is_colliding(self, rock: Rock) -> bool:
+    def _is_colliding(self, rock: Rock) -> bool:
         """
-        Check at least one point of the rock is colliding with the rubble
+        Check if at least one point of the rock is colliding with the rubble
         already in the cave.
-        When down is True only collisions downwards are checked
         """
+        # Rock not even near the rocks already in the cave (no need to check)
         if rock.bottom > self.rock_pile_height:
             return False
 
@@ -657,7 +832,7 @@ class Cave:
                 return True
         return False
 
-    def move_rock_with_jet(self, rock: Rock) -> None:
+    def _move_rock_with_jet(self, rock: Rock) -> None:
         """Attempt to move a Rock with a jet stream."""
         direction = next(self.jet)
         if direction == Direction.left and rock.left <= 0:
@@ -666,11 +841,11 @@ class Cave:
             return
         rock.move(direction)
         # check if move results in a collision (sideways)
-        if self.is_colliding(rock):
+        if self._is_colliding(rock):
             # move rock back
             rock.move(Direction.invert(direction))
 
-    def add_rock_to_rubble(self, rock: Rock) -> None:
+    def _add_rock_to_rubble(self, rock: Rock) -> None:
         """
         Add the rock to the rubble pile in the cave.
         """
@@ -679,6 +854,36 @@ class Cave:
 
         for sq in rock.squares():
             self.rubble[sq.y][sq.x] = True
+
+        self._n_rocks += 1
+
+
+class CaveState(NamedTuple):
+    """State of the cave after rock_nr rocks have fallen into it."""
+    rock_nr: int
+    rock_pos: int
+    jet_pos: int
+    height: int
+    contour: Contour
+
+    @staticmethod
+    def from_cave(cave: Cave) -> CaveState:
+        contour: Contour = Contour.trace(cave)
+        return CaveState(rock_nr=cave.nr_rocks,
+                         rock_pos=cave.rock.current,
+                         jet_pos=cave.jet.position,
+                         height=cave.rock_pile_height,
+                         contour=contour)
+
+    def __hash__(self) -> int:
+        return hash((self.rock_pos, self.jet_pos, hash(self.contour)))
+
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, CaveState):
+            return NotImplemented
+        return (self.rock_pos == other.rock_pos
+                and self.jet_pos == other.jet_pos
+                and self.contour == other.contour)
 
 
 class Day17(DayChallenge):
@@ -694,44 +899,79 @@ class Day17(DayChallenge):
 
     def run(self, input_data: Path) -> None:
         data: list[str]
+        cave: Cave
 
         with input_data.open() as file:
             data = file.read().split("\n")
         jet_pattern = ''.join(data).strip()
 
-        cave: Cave = Cave(jet_pattern)
         # PART 1
         print("Part 1:")
+        cave = Cave(jet_pattern)
         cave.simulate_falling_rocks(2022)
         print(f"Height of the rubble after 2022 rocks: {cave.rock_pile_height}")
 
         # PART 2
         print("\nPart 2:")
+        n = 1_000_000_000_000     # number of rocks to drop...
+        cave = Cave(jet_pattern)  # new cave
 
-    def test(self):
-        test_result: int = 3068
-        test_n_rocks: int = 2022
-        jet_pattern: str = ">>><<><>><<<>><>>><<<>>><<<><<<>><>><<>>"
+        # Idea - Find repeat of the pattern.
+        # Compare the contours of the cave after each new rock has come to rest.
+        # if the following three factors match, we have found a loop:
+        # 1) contour
+        # 2) type of rock to be dropped next
+        # 3) position in the jet pattern
+        cave_states: dict[Contour: list[CaveState]] = dict()
+        state: CaveState = CaveState.from_cave(cave)
+        cave_states[state.contour] = [state]
+        matching_states = []
 
-        # The tall, vertical chamber is exactly seven units wide. Each rock
-        # appears so that its left edge is two units away from the left wall
-        # and its bottom edge is three units above the highest rock in the
-        # room (or the floor, if there isn't one).
+        # find two matching states
+        while len(matching_states) < 1:
+            # drop a new rock
+            cave.simulate_falling_rocks(1)
+            state = CaveState.from_cave(cave)
 
-        cave: Cave = Cave(jet_pattern)
-        print(f"Initial rubble pile: {cave.rock_pile_height}")
-        cave.simulate_falling_rocks(test_n_rocks)
-        print(f"Rubble pile after {test_n_rocks}: {cave.rock_pile_height}"
-              f" (correct: {test_result})")
-        # for i in range(6):
-        #     cave.simulate_falling_rocks(1)
-        #     print(f"Rock nr.: {i}\n")
-        #     Day17.print_cave(cave)
+            if state.contour not in cave_states:
+                cave_states[state.contour] = [state]
+            else:
+                matching_states = [other_state
+                                   for other_state in cave_states[state.contour]
+                                   if other_state == state]
+                cave_states[state.contour].append(state)
 
-    @staticmethod
-    def print_cave(cave: Cave) -> None:
-        rubble = cave.rubble
-        for i in range(len(rubble) - 1, 0, -1):
-            layer = ''.join(['#' if r else '.' for r in rubble[i]])
-            print(f"|{layer}|")
-        print(f"+-------+")
+        # found a matching state
+        match = matching_states[0]
+
+        # height gain between states
+        height_diff = state.height - match.height
+        # number of rocks that were added in between states
+        rock_diff = state.rock_nr - match.rock_nr
+        # number of rounds (of dropping in rock_diff rocks) to approach n
+        rounds = (n - match.rock_nr) // rock_diff
+        # number of rocks in the cave after the rounds
+        n_rocks_after_rounds = rounds * rock_diff + match.rock_nr
+        # rocks missing to reach n rocks in cave
+        missing_rocks = n - n_rocks_after_rounds
+        height_after_rounds = rounds * height_diff + match.height
+
+        # get the state of the cave after adding the missing rocks to the
+        # matching cave where the loop starts
+        def get_cave_state(rocks_of_state: int, states: Iterable[CaveState]) \
+                -> CaveState:
+            for s in states:
+                if s.rock_nr == rocks_of_state:
+                    return s
+
+        cave_state_n: CaveState = get_cave_state(
+            rocks_of_state=match.rock_nr + missing_rocks,
+            states=chain(*cave_states.values())
+        )
+
+        # height added by the missing number of rocks
+        height_from_rocks_after_loop = cave_state_n.height - match.height
+
+        total_height = height_after_rounds + height_from_rocks_after_loop
+
+        print(f"Simulated height of rubble after {n} rocks: {total_height}")

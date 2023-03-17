@@ -44,6 +44,22 @@ to another cube, the total surface area is 64.
 
 What is the surface area of your scanned lava droplet?
 
+--- Part Two ---
+
+Something seems off about your calculation. The cooling rate depends on
+exterior surface area, but your calculation also included the surface area of
+air pockets trapped in the lava droplet.
+
+Instead, consider only cube sides that could be reached by the water and
+steam as the lava droplet tumbles into the pond. The steam will expand to
+reach as much as possible, completely displacing any air on the outside of
+the lava droplet but never expanding diagonally.
+
+In the larger example above, exactly one cube of air is trapped within the
+lava droplet (at 2,2,5), so the exterior surface area of the lava droplet is 58.
+
+What is the exterior surface area of your scanned lava droplet?
+
 """
 
 from __future__ import annotations
@@ -125,22 +141,50 @@ class Scan3D:
                 return NotImplemented
             return self.coordinates == other.coordinates
 
+        @staticmethod
+        def from_coordinates3d(c: Coordinates3D) -> Scan3D.Cube:
+            return Scan3D.Cube(x=c.x, y=c.y, z=c.z)
+
     def __init__(self, scan_data: Iterable[Coordinates3D]):
         # Boolean 3D array that represents the scan data for each coordinate
         # (True means lava/matter, False means an empty cube)
         self.matrix: Scan3D.Matrix3D
         # All the cubes that contain matter
         self.matter: frozenset[Scan3D.Cube]
+        # All the empty cubes that are outside the matter (surrounding)
+        self.outer_shell: frozenset[Scan3D.Cube]
 
         self.matrix = Scan3D._generate_matter_matrix(scan_data)
         self.matter = Scan3D._perform_matter_scan(matrix=self.matrix)
+        self.outer_shell = Scan3D._perform_outer_shell_scan(matrix=self.matrix)
+
+    @staticmethod
+    def _generate_matter_matrix(data: Iterable[Coordinates3D]) \
+            -> Scan3D.Matrix3D:
+        """
+        Generate a boolean 3D matrix holding the data for all cubes; True in
+        the matrix means this cube contains matter.
+        """
+        max_x = max([c.x for c in data])
+        max_y = max([c.y for c in data])
+        max_z = max([c.z for c in data])
+        # generate the matrix with a 'padding' of one (sub)cube of space (False)
+        # on all sides, adjust the coordinates accordingly
+        # shape +2 for padding +1 as input data are indices = +3
+        matrix: Scan3D.Matrix3D = Scan3D.Matrix3D(
+            shape=(max_x+3, max_y+3, max_z+3))
+        # mark all 'matter' (sub)cubes with True
+        # !also shift them by +1 in all dimensions to account for the padding
+        for cube in data:
+            matrix.array[cube.x+1, cube.y+1, cube.z+1] = True
+        return matrix
 
     @staticmethod
     def _perform_matter_scan(matrix: Scan3D.Matrix3D) \
             -> frozenset[Scan3D.Cube]:
         """
-        Perform a walk along the matrix identifying all matter cubes and
-        counting their neighbours.
+        Scan the whole matrix identifying all matter cubes and counting their
+        neighbors.
         """
         matter = True
         m = matrix.array
@@ -164,24 +208,44 @@ class Scan3D:
         return frozenset(matter_cubes)
 
     @staticmethod
-    def _generate_matter_matrix(data: Iterable[Coordinates3D]) \
-            -> Scan3D.Matrix3D:
+    def _perform_outer_shell_scan(matrix: Scan3D.Matrix3D) \
+            -> frozenset[Scan3D.Cube]:
         """
-        Generate a boolean 3D matrix holding the data for all cubes; True in
-        the matrix means this cube contains matter.
+        Perform a walk around the matrix to identify all empty cubes that are
+        outside (surrounding) the matter, and count their (empty) neighbors
         """
-        max_x = max([c.x for c in data])
-        max_y = max([c.y for c in data])
-        max_z = max([c.z for c in data])
-        # generate the matrix with a 'padding' of one (sub)cube of space (False)
-        # on all sides, adjust the coordinates accordingly
-        matrix: Scan3D.Matrix3D = Scan3D.Matrix3D(
-            shape=(max_x+2, max_y+2, max_z+2))
-        # mark all 'matter' (sub)cubes with True
-        # !also shift them by +1 in all dimensions to account for the padding
-        for cube in data:
-            matrix.array[cube.x+1, cube.y+1, cube.z+1] = True
-        return matrix
+        empty = False
+        outer_shell_cubes: dict[Coordinates3D, Scan3D.Cube] = dict()
+        # the matrix is padded, so we know the cube (0, 0, 0) is empty
+        unvisited_coordinates: set[Coordinates3D] = {Coordinates3D(0, 0, 0)}
+
+        # helper function to determine the number of faces in contact with
+        # another empty-cube, or are at the extremes of the matrix
+        # (count cubes as outside the matrix as empty neighbors!)
+        def calc_contact_faces() -> int:
+            nonlocal matrix, empty, neighbors
+            contact_faces = 0
+            # when neighboring cubes are missing these are outside the matrix
+            contact_faces += 6 - len(neighbors)
+            contact_faces += sum([1 for nb in neighbors
+                                  if matrix.get(nb) == empty])
+            return contact_faces
+
+        while len(unvisited_coordinates) > 0:
+            current_coordinates = unvisited_coordinates.pop()
+            neighbors = matrix.get_neighbors(current_coordinates)
+            # add un-visited (empty) cubes to the stack
+            for n in neighbors:
+                if matrix.get(n) == empty \
+                        and n not in outer_shell_cubes:
+                    unvisited_coordinates.add(n)
+            # process current cube
+            if matrix.get(current_coordinates) == empty:
+                cube = Scan3D.Cube.from_coordinates3d(current_coordinates)
+                cube.contact_faces = calc_contact_faces()
+                outer_shell_cubes[cube.coordinates] = cube
+
+        return frozenset(outer_shell_cubes.values())
 
 
 class Day18(DayChallenge):
@@ -206,36 +270,13 @@ class Day18(DayChallenge):
 
         scan = Scan3D(coordinates)
 
-        #Day18.test()
         # PART 1
         print("Part 1:")
         surface_area = sum([6 - cube.contact_faces for cube in scan.matter])
         print(f"surface area: {surface_area}")
-
-        # PART 2
+        #
+        # # PART 2
         print("\nPart 2:")
-
-    @staticmethod
-    def test():
-        print("TESTING")
-        test_in: str = """2,2,2
-                          1,2,2
-                          3,2,2
-                          2,1,2
-                          2,3,2
-                          2,2,1
-                          2,2,3
-                          2,2,4
-                          2,2,6
-                          1,2,5
-                          3,2,5
-                          2,1,5
-                          2,3,5"""
-
-        lines = [line.strip() for line in test_in.split("\n")]
-        coordinates = [Coordinates3D.from_string(line) for line in lines]
-        scan = Scan3D(coordinates)
-        surface_area = sum([6 - cube.contact_faces for cube in scan.matter])
-
-        print(f"surface area: {surface_area}")
-
+        exterior_surface_area = sum([6 - cube.contact_faces
+                                     for cube in scan.outer_shell])
+        print(f"outer surface area: {exterior_surface_area}")
